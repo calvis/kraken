@@ -2,9 +2,22 @@
 
 (provide (all-defined-out))
 
-(require racket/trace racket/stream)
+(require racket/trace (rename-in racket/stream [stream-append stream-append-proc]))
 
 (define-syntax-rule (ignore e ...) (void))
+
+(define-syntax-rule (display/return expr)
+  (let ([result expr]) (display " return: ") (display result) (newline) expr))
+
+(define-syntax-rule (stream-append s* ... s)
+  (let ([last (lambda () s)]
+        [pre (stream-append-proc s* ...)])
+    (define (loop stream n)
+      (cond
+       [(stream-empty? stream) (last)]
+       [else (stream-cons (stream-first stream)
+                          (loop (stream-rest stream) (add1 n)))]))
+    (loop pre 0)))
 
 ;; =============================================================================
 ;; variables
@@ -45,6 +58,24 @@
 (define (extend-rs v s)
   `((,v . ,(reify-n v (size-s s))) . ,s))
 
+(define (walk/internal u s)
+  (cond
+   [(and (cvar? u) (assq u s))
+    => (lambda (a) (walk/internal (cdr a) s))]
+   [(pair? u)
+    (cons (walk/internal (car u) s)
+          (walk/internal (cdr u) s))]
+   [else u]))
+
+(define (reify-s v^ s)
+  (define v (walk/internal v^ s))
+  (cond
+   [(cvar? v)
+    (extend-rs v s)]
+   [(pair? v) 
+    (reify-s (cdr v) (reify-s (car v) s))]
+   [else s]))
+
 ;; =============================================================================
 ;; trees
 
@@ -54,8 +85,8 @@
 ;; constraints and attributes
 
 (require racket/class 
-         racket/match
-         (except-in racket/list range take)
+         (except-in racket/match ==)
+         racket/list
          racket/function
          racket/pretty)
 
@@ -63,7 +94,8 @@
   (class* object% (printable<%> equal<%>)
     (super-new)
 
-    (init-field [rator this%] [rands '()])
+    (init-field [rator this%] [rands '()]
+                [parent #f])
 
     (define/public (get-rator) this%)
     (define/public (get-rands) rands)
@@ -83,42 +115,76 @@
       (map recur? rands (get-field rands obj)))
 
     (define/public (equal-hash-code-of hash-code) 5)
-    (define/public (equal-secondary-hash-code-of hash-code) 5)))
+    (define/public (equal-secondary-hash-code-of hash-code) 5)
 
-(define reifiable<%>
-  (interface () reify))
+    (define/public (with-parent p)
+      (unless (not parent)
+        (error 'with-parent "too many parents"))
+      (new this% [rator rator] [rands rands] [parent p]))
 
-(define default-reify
-  (mixin () (reifiable<%>)
-         (inherit-field rands)
-         (define/public (reify)
-           (cons (object-name this%) rands))))
+    (define ((update-constraints state k) o)
+      (if (and (not (subclass? this% conj%))
+               (not (subclass? this% disj%))
+               (is-a? o functionable%))
+          (send o ->out state k) o))
 
-(define (ext-a attr a)
-  (define x% (get-field rator attr))
-  (define x  (car (get-field rands attr)))
-  (cond
-   [(findf (lambda (obj) 
-             (define y% (send obj get-rator))
-             (define y  (car (get-field rands attr)))
-             (and (subclass? y% x%) (eq? y x)))
-           a)
-    => (lambda (attr^) (cons (send attr^ join attr) (remq attr^ a)))]
-   [else (cons attr a)]))
-(require racket/trace) (trace ext-a)
+    (define (stream-constraints rands state) 
+      (printf "stream-constraints: ~a ~a\n" rands state)
+      (cond
+       [(or (subclass? this% conj%) (subclass? this% disj%)) state]
+       [else
+        (for/fold 
+          ([state state]) 
+          ([o rands] #:when (is-a? o functionable%))
+          #:break (not state)
+          (send o ->stream state))]))
+
+    (define/pubment (join state)
+      (call/cc
+       (lambda (k)
+         (let ([rands^ (map (update-constraints state k) rands)])
+           (cond
+            [(ormap (curryr is-a? cdr%) rands^)
+             (send state extend (new this% [rands rands^]))]
+            [(equal? rands rands^)
+             (inner #f join state)]
+            [else 
+             (send (new this% [rands rands^]) join state)])))))
+
+    (define/pubment (satisfy state)
+      (call/cc
+       (lambda (k)
+         (let ([rands^ (map (update-constraints state k) rands)])
+           (cond
+            [(ormap (curryr is-a? cdr%) rands^)
+             (new this% [rands rands^])]
+            [(equal? rands rands^)
+             (inner #f satisfy state)]
+            [else 
+             (send (new this% [rands rands^]) satisfy state)])))))
+
+    ;; State Stream -> Stream
+    (define/pubment (augment-stream stream)
+      (inner (stream-map (lambda (state) 
+                           (cond
+                            [(stream-constraints rands state)
+                             => (lambda (state) (send this join state))]
+                            [else #f]))
+                         stream)
+             augment-stream stream))))
 
 (define constraint%
   (class base%
     (super-new)
-
     (define/public (merge c) #f)))
 
 (define succeed%
   (class constraint%
     (super-new)
-    (define/public (join state) state)
-    (define/public (satisfy state) #t)
-    (define/override (merge c^) c^)))
+    (define/augment (join state) state)
+    (define/augment (satisfy state) #t)
+    (define/override (merge c^) c^)
+    (define/augment (augment-stream stream) stream)))
 
 (define succeed 
   (new succeed%))
@@ -126,26 +192,36 @@
 (define fail%
   (class constraint%
     (super-new)
-    (define/public (join state) #f)
-    (define/public (satisfy state) #f)))
+    (define/augment (join state) #f)
+    (define/augment (satisfy state) #f)))
 
 (define fail 
   (new fail%))
 
-(define reifiable-constraint%
-  (default-reify constraint%))
-
 (define attribute%
   (class base%
+    (super-new)))
+
+(define unary-attribute%
+  (class attribute%
+    (super-new)
+    (inherit-field rator rands)
+
+    (define/augment (join state)
+      (or (and (send state get-attribute this% (car rands)) state)
+          (inner #f join state)
+          (send state set-attribute (new this% [rands rands]))))
+
+    (define/public (get-value) #f)))
+
+(define binary-attribute%
+  (class attribute%
     (super-new)
 
     (inherit-field rator rands)
 
-    (define/pubment (join state)
-      (let ([a^ (send state get-attribute this% (car rands))])
-        (cond
-         [(equal? (cadr rands) a^) state]
-         [else (inner #f join state)])))))
+    (define/augment (join state)
+      (inner state join state))))
 
 ;; -----------------------------------------------------------------------------
 ;; conjunction
@@ -156,14 +232,14 @@
 
     (inherit-field [clauses rands])
 
-    (unless (andmap (curryr is-a? constraint%) clauses)
+    (unless (andmap (curryr is-a? base%) clauses)
       (error 'conj% "malformed clauses ~a" clauses))
 
-    (define/public (join state)
+    (define/augment (join state)
       (for/fold ([state state]) ([constraint clauses])
         (and state (send constraint join state))))
 
-    (define/public (satisfy state)
+    (define/augment (satisfy state)
       (define result
         (for/fold ([clauses^ '()]) ([c clauses])
           ;; satisfy : State -> False U True U Constraint
@@ -172,13 +248,22 @@
             [#f #f]
             [#t clauses^]
             [c^ (cons c^ clauses^)])))
-      (or (not result) (apply conj (reverse result))))))
+      (and result (or (null? result) (apply conj (reverse result)))))
+
+    (define/augment (augment-stream stream)
+      (let ([stream (send (car clauses) augment-stream stream)]
+            [rest   (apply conj (cdr clauses))])
+        (send rest augment-stream stream)))))
 
 (define (conj . clauses)
   (cond
    [(null? clauses) succeed]
    [(null? (cdr clauses)) (car clauses)]
-   [else (new conj% [rands clauses])]))
+   [else (new conj% [rands (reverse
+                            (for/fold ([c* '()]) ([c clauses])
+                              (if (is-a? c conj%) 
+                                  (append (get-field rands c) c*)
+                                  (cons c c*))))])]))
 
 ;; -----------------------------------------------------------------------------
 ;; disjunction
@@ -189,47 +274,45 @@
 
     (inherit-field [clauses rands])
 
-    (define/public (join state^)
+    (define/augride (join state)
       (define result
-        (for/list ([state clauses]) 
-          (and state state^ (send state satisfy state^))))
+        (for/list ([c clauses]) 
+          (and state (send c satisfy state))))
       (cond
-       [(findf (curry eq? #t) result) state^]
+       [(findf (curry eq? #t) result) state]
        [else 
         (let ([clauses (filter identity result)])
           (cond
            [(null? clauses) #f]
-           [(null? (cdr clauses))
-            (define (satisfy->join state)
-              (define s (get-field s state))
-              (define c (get-field c state))
-              (define a (get-field a state))
-              (new state%
-                   [s (if (boolean? s) '() s)]
-                   [c (if (boolean? c) succeed c)]
-                   [a (if (boolean? a) '() a)]))
-            (send (satisfy->join (car clauses)) join state^)]
-           [else (send state^ add-constraint (apply disj clauses))]))]))))
+           [(null? (cdr clauses)) (send (car clauses) join state)]
+           [else (send state add-constraint (apply disj clauses))]))]))
 
-(define (disj . clauses)
+    (define/augride (satisfy state)
+      (define result
+        (for/list ([c clauses]) 
+          (and state (send c satisfy state))))
+      (cond
+       [(findf (curry eq? #t) result) #t]
+       [else (apply disj (filter identity result))]))
+
+    (define (stream-interleave stream)
+      (let ([stream (stream-filter (compose not stream-empty?) stream)])
+        (stream-append
+         (stream-map stream-first stream)
+         (stream-interleave (stream-map stream-rest stream)))))
+
+    (define/augment (augment-stream stream)
+      (stream-interleave (stream-map (lambda (c) (send c augment-stream stream))
+                                     clauses)))))
+
+(define (disj #:parent [parent #f] . clauses)
   (cond
-   [(null? clauses) #f]
+   [(null? clauses) fail]
    [(null? (cdr clauses)) 
-    (define (satisfy->join state)
-      (define s (get-field s state))
-      (define c (get-field c state))
-      (define a (get-field a state))
-      (new state%
-           [s (if (boolean? s) '() s)]
-           [c (if (boolean? c) succeed c)]
-           [a (if (boolean? a) '() a)]))
-    (satisfy->join (car clauses))]
+    (send (car clauses) with-parent parent)]
    [else 
     (define flat-clauses (append-map flatten-disj% clauses))
-    (new state% 
-         [s `()]
-         [c (new disj% [rands flat-clauses])]
-         [a `()])]))
+    (new disj% [rands flat-clauses] [parent parent])]))
 
 (define (flatten-disj% c)
   (cond
@@ -262,15 +345,21 @@
     (inherit-field rands)
     (match-define (list test consequent) rands)
 
-    (unless (and (is-a? test constraint%)
-                 (is-a? consequent constraint%))
+    (unless (and (is-a? test base%)
+                 (is-a? consequent base%))
       (error 'when "malformed when ~a ~a" test consequent))
 
-    (define/public (join state)
+    (define/augment (join state)
       (match (send test satisfy state)
         [#f state]
         [#t (send consequent join state)]
-        [test^ (send state add-constraint (new when% [rands (list test^ consequent)]))]))))
+        [test^ (send state add-constraint (new when% [rands (list test^ consequent)]))]))
+
+    (define/augment (satisfy state)
+      (match (send test satisfy state)
+        [#f state]
+        [#t (send consequent satisfy state)]
+        [test^ (new when% [rands (list test^ consequent)])]))))
 
 ;; -----------------------------------------------------------------------------
 ;; associate
@@ -278,24 +367,33 @@
 (define (associate x v) 
   (new associate% [rands (list x v)]))
 
+(define (== x v)
+  (associate x v))
+
 (define associate%
   (class constraint%
     (super-new)
     (inherit-field rands)
     (match-define (list x v) rands)
 
-    (define/public (join state)
+    (define/augment (join state)
       (send state associate x v))
 
-    (define/public (satisfy state)
+    (define/augment (satisfy state)
       (let ([x (send state walk x)]
             [v (send state walk v)])
         (cond
          [(eq? x v) #t]
-         [(or (pair? x) (pair? v))
+         [(and (pair? x) (pair? v))
           (send (conj (associate (car x) (car v))
                       (associate (cdr x) (cdr v)))
                 satisfy state)]
+         [(and (is-a? x functionable%)
+               (not (object? v)))
+          (send (send x ->rel v) satisfy state)]
+         [(and (is-a? v functionable%)
+               (not (object? x)))
+          (send (send v ->rel x) satisfy state)]
          [(or (var? x) (var? v))
           (associate x v)]
          [else #f])))))
@@ -314,16 +412,22 @@
     (init-field [s '()] [c succeed] [a '()])
 
     (define/public (custom-print p depth)
-      (display (list 'state% s c a) p))
+      (display (list 'state% (map (lambda (p) (list (car p) (walk (cdr p)))) s) c a) p))
     (define/public (custom-write p)
-      (write   (list 'state% s c a) p))
+      (write   (list 'state% (map (lambda (p) (list (car p) (walk (cdr p)))) s) c a) p))
     (define/public (custom-display p) 
-      (display (list 'state% s c a) p))
+      (display (list 'state% (map (lambda (p) (list (car p) (walk (cdr p)))) s) c a) p))
 
     (define/public (associate x v)
       (let ([x (walk x)] [v (walk v)])
         (cond
          [(eq? x v) this]
+         [(and (is-a? x functionable%)
+               (not (object? v)))
+          (send x ->rel v this)]
+         [(and (is-a? v functionable%)
+               (not (object? x)))
+          (send v ->rel x this)]
          [(var? x) 
           (let* ([state (new state% [s (cons (cons x v) s)])]
                  [state (join-a a state)]
@@ -338,47 +442,62 @@
           (let* ([state (send this associate (car x) (car v))]
                  [state (and state (send state associate (cdr x) (cdr v)))])
             state)]
+         [(tree? x)
+          (tree-associate x v this)]
+         [(tree? v)
+          (tree-associate v x this)]
          [(equal? x v) this]
          [else #f])))
 
     (define/public (walk u) (walk/internal u s))
-
-    (define (walk/internal u s)
-      (cond
-       [(and (cvar? u) (assq u s))
-        => (lambda (a) (walk/internal (cdr a) s))]
-       [else u]))
 
     (define/public (equal-to? obj recur?)
       (and (recur? s (get-field s obj))
            (recur? c (get-field c obj))
            (recur? a (get-field a obj))))
 
+    (define/public (extend obj)
+      (cond
+       [(is-a? obj attribute%) 
+        (set-attribute obj)]
+       [else (add-constraint obj)]))
+
     (define/public (get-attribute x% x)
       (cond
        [(findf (lambda (attr^)
                  (define y% (send attr^ get-rator))
-                 (match-define (list y ya) (send attr^ get-rands))
+                 (match-define (list y ya ...) (send attr^ get-rands))
                  (and (subclass? x% y%) (eq? x y)))
                a)
         => (lambda (attr^) (send attr^ get-value))]
-       [else (send (new x% [rands (list x)]) get-value)]))
+       [else #f]))
 
     (define/public (set-attribute attr)
       (define x% (send attr get-rator))
-      (match-define (list x xa) (send attr get-rands))
+      (match-define (list x xa ...) (send attr get-rands))
       (cond
        [(findf (lambda (attr^)
                  (define y% (send attr^ get-rator))
-                 (match-define (list y ya) (send attr^ get-rands))
+                 (match-define (list y ya ...) (send attr^ get-rands))
+                 (and (subclass? y% x%) (eq? x y)))
+               a)
+        => (lambda (attr^)
+             (or (and (pair? xa)
+                      (send (send attr^ merge (car xa))
+                            join (new state% [s s] [c c] [a (remq attr^ a)])))
+                 this))]
+       [(findf (lambda (attr^)
+                 (define y% (send attr^ get-rator))
+                 (match-define (list y ya ...) (send attr^ get-rands))
                  (and (subclass? x% y%) (eq? x y)))
                a)
         => (lambda (attr^)
-             (send (send attr^ merge xa)
-                   join (new state% [s s] [c c] [a (remq attr^ a)])))]
+             (new state% [s s] [c c] [a (cons attr (remq attr^ a))]))]
        [else (new state% [s s] [c c] [a (cons attr a)])]))
 
     (define/public (add-constraint c^)
+      (unless (is-a? c constraint%)
+        (error 'add-constraint "state has non-constraint ~a" c))
       (unless (is-a? c^ constraint%)
         (error 'add-constraint "trying to add non-constraint ~a" c^))
       (define new-c 
@@ -388,10 +507,9 @@
       (new this% [s s] [c new-c] [a a]))
 
     ;; take one state, split it based on the disjunctions in attributes
-    (define/public (to-stream)
-      (cond
-       [(null? a) (list this)]
-       [else (apply stream-append (map (lambda (a) (send a to-stream this)) a))]))
+    (define/public (narrow [n #f])
+      (let ([answer-stream (send (apply conj a) augment-stream (list this))])
+        (for/list ([i (or n (in-naturals))] [s (stream-filter identity answer-stream)]) s)))
 
     (define/public (equal-hash-code-of hash-code) 5)
     (define/public (equal-secondary-hash-code-of hash-code) 6)
@@ -416,88 +534,26 @@
       (let* ([result-state                   (join-s s state^)]
              [result-state (and result-state (join-a a result-state))]
              [result-state (and result-state (join-c c result-state))])
-        ;; (printf "join:\n 1: ~a\n 2: ~a\n 3: ~a\n" this state^ result-state)
         result-state))
 
-    ;; ---------------------------------------------------------------------------
-    ;; satisfy
+    ;; -------------------------------------------------------------------------
+    ;; reify
 
-    (define/public (satisfy-s s state^)
-      (define new-s
-        (for/fold ([s^ '()]) ([assoc s])
-          #:break (not s^)
-          ;; check if x is associated to the same thing in the other state
-          (define x (car assoc))
-          (define u (walk (cdr assoc)))
-          (define v (send state^ walk x))
-          (cond
-           [(eq? u v) s^]
-           [(or (var? v) (var? u)) (cons (cons v u) s^)]
-           [else #f])))
-      (or (null? new-s) new-s))
+    (define/public (reify e) 
+      (let ([e (walk e)])
+        (walk/internal e (reify-s e empty-s))))))
 
-    (define/public (satisfy-a a state^)
-      (define new-a
-        (for/fold ([a^ '()]) ([attr a])
-          #:break (not a^)
-          (cond
-           [(send attr satisfy state^)
-            => (lambda (attr^)
-                 (cond
-                  [(boolean? attr^) a^]
-                  [else (cons attr^ a^)]))]
-           [else #f])))
-      (or (null? new-a) new-a))
-
-    (define/public (satisfy-c c state^)
-      (send c satisfy state^))
-
-    ;; State -> False U True U State
-    (define/public (satisfy state^)
-      (let* ([s^ (or (boolean? s) (satisfy-s s state^))]
-             [a^ (or (boolean? a) (satisfy-a a state^))]
-             [c^ (or (boolean? c) (satisfy-c c state^))])
-        (and s^ a^ c^
-             (or (andmap boolean? (list s^ a^ c^))
-                 (new state% [s s^] [c c^] [a a^])))))))
+;; t is a tree
+(define (tree-associate t v state)
+  (cond
+   [(not (or (var? v) (tree? v) (pair? v) (null? v))) #f]
+   [(null? v)
+    (for/fold ([state state]) ([node (tree-nodes t)])
+      #:break (not state)
+      (send state associate node '()))]
+   [else #f]))
 
 (define empty-state (new state%))
-
-(define attribute-update-state%
-  (class state%
-    (super-new)
-
-    (inherit-field s c a)
-    (inherit join-a join-c join-s
-             satisfy-a satisfy-c satisfy-s)
-
-    ;; if we can update the substitution and the attributes without
-    ;; changing anything, then don't add the constraint
-    (define/override (join state^)
-      (let* ([result-state (join-s s state^)]
-             [a^ (satisfy-a a result-state)])
-        ;; (printf "join:\n 1: ~a\n 2: ~a\n" this state^)
-        (cond
-         [(boolean? a^)
-          ;; (printf " (attribute ~a was satsified)\n 3: ~a\n"
-          ;;         result-state a)
-          result-state]
-         [else 
-          ;; (printf " (attribute ~a not satisfied in ~a)\n" a^ result-state)
-          (let* ([result-state (and result-state a^ (join-a a^ result-state))]
-                 [result-state (and result-state    (join-c c result-state))])
-            ;; (printf " 3: ~a\n" result-state)
-            result-state)])))))
-
-;; =============================================================================
-;; take
-
-(define (take state [n #f])
-  (cond
-   [state (for/list ([s (send state to-stream)]
-                     [i (or n (in-naturals))])
-            s)]
-   [else '()]))
 
 ;; =============================================================================
 ;; examples
@@ -519,8 +575,6 @@
     (super-new)
     (inherit-field rands)
     (init-field [partial #f])))
-
-(define (reify c) c)
 
 (define !=%
   (class compound-constraint%
@@ -627,9 +681,12 @@
           ((= i max) `())
           (else (loop (+ i 1))))))))
 
-(define range
+(define range-dom
   (lambda (lb ub)
-    `((,lb . ,ub))))
+    (cond
+     [(>= ub 0)
+      `((,(max lb 0) . ,ub))]
+     [else `()])))
 
 (define value-dom?
   (lambda (v)
@@ -682,7 +739,8 @@
   (lambda (dom)
     (unless (and (list? dom) (andmap interval? dom))
       (error 'singleton-dom? "invalid domain ~a" dom))
-    (and (null-dom? (cdr dom))
+    (and (not (null-dom? dom))
+         (null-dom? (cdr dom))
          (singleton-interval? (car dom)))))
 
 (define singleton-element-dom
@@ -774,7 +832,7 @@
       (else #f))))
 
 (define dom%
-  (class attribute% 
+  (class binary-attribute% 
     (super-new)
 
     (inherit-field rands)
@@ -783,14 +841,15 @@
     (define d 
       (cond
        [(not (null? (cdr rands))) (cadr rands)]
-       [(value-dom? x) (range x x)]
-       [else (range 0 100)]))
+       [(value-dom? x) (range-dom x x)]
+       [else (range-dom 0 100)]))
     
     (define/public (get-value) d)
 
     (define/augment (join state)
       (let ([x (send state walk x)])
         (cond
+         [(null-dom? x) #f]
          [(value-dom? x)
           (and (memv-dom? x d) state)]
          [(singleton-dom? d)
@@ -798,7 +857,7 @@
          [else 
           (send state set-attribute (new dom% [rands (list x d)]))])))
 
-    (define/public (satisfy state)
+    (define/augment (satisfy state)
       (let ([x (send state walk x)])
         (cond
          [(not (not (memv-dom? x d)))]
@@ -811,20 +870,24 @@
       (define new-d (intersection-dom d d^))
       (new dom% [rands (list x new-d)]))))
 
-(define (dom x d)
-  (send (new dom% [rands (list x d)]) join empty-state))
+(define (dom/a x d)
+  (new dom% [rands (list x d)]))
 
 (define (+fd . n*)
   (cond
-   [(or (null? n*) (null? (cdr n*))) empty-state]
-   [(null? (cddr n*)) (associate (car n*) (cadr n*))]
+   [(or (null? n*) (null? (cdr n*))) 
+    succeed]
+   [(null? (cddr n*)) 
+    (associate (car n*) (cadr n*))]
    [(null? (cdddr n*))
-    (send (new +fd% [rands n*]) join empty-state)]
+    (new +fd% [rands n*])]
    [else
     (match-define (list n1 n2 rest ...) n*)
     (let ([n^ (var (gensym 'n))])
       (conj (+fd n1 n2 n^)
             (apply +fd (cons n^ rest))))]))
+
+(define functionable% (interface () ->out ->rel ->stream))
 
 (define +fd%
   (class constraint%
@@ -834,44 +897,99 @@
 
     ;; KEEP PUTTING IT IN until the attributes it is trying to assign
     ;; are TRIVIALLY TRUE
-    (define/public (join state)
+    (define/augment (join state)
       (let ([u (send state walk u)]
             [v (send state walk v)]
             [w (send state walk w)])
-        (let ([du (send state get-attribute dom% u)]
-              [dv (send state get-attribute dom% v)]
-              [dw (send state get-attribute dom% w)])
+        (let ([du (or (send state get-attribute dom% u) 
+                      (and (value-dom? u) (range-dom u u))
+                      (range-dom 0 100))]
+              [dv (or (send state get-attribute dom% v) 
+                      (and (value-dom? v) (range-dom v v))
+                      (range-dom 0 100))]
+              [dw (or (send state get-attribute dom% w) 
+                      (and (value-dom? w) (range-dom w w))
+                      (range-dom 0 100))])
           (let ([wmin (min-dom dw)] [wmax (max-dom dw)]
                 [umin (min-dom du)] [umax (max-dom du)]
                 [vmin (min-dom dv)] [vmax (max-dom dv)])
-            (let ([new-w-dom (range (+ umin vmin) (+ umax vmax))]
-                  [new-u-dom (range (- wmin vmax) (- wmax vmin))]
-                  [new-v-dom (range (- wmin umax) (- wmax umin))])
-              (send (new attribute-update-state%
-                         [s `()]
-                         [c (new +fd% [rands (list u v w)])]
-                         [a `(,(new dom% [rands (list u new-u-dom)])
-                              ,(new dom% [rands (list v new-v-dom)])
-                              ,(new dom% [rands (list w new-w-dom)]))])
-                    join state))))))))
+            (let ([new-w-dom (range-dom (+ umin vmin) (+ umax vmax))]
+                  [new-u-dom (range-dom (- wmin vmax) (- wmax vmin))]
+                  [new-v-dom (range-dom (- wmin umax) (- wmax umin))])
+              (cond
+               [(or (var? u) (var? v) (var? w))
+                (let* ([state            (send state add-constraint (+fd u v w))]
+                       [state (and state (send (dom/a u new-u-dom) join state))]
+                       [state (and state (send (dom/a v new-v-dom) join state))]
+                       [state (and state (send (dom/a w new-w-dom) join state))])
+                  state)]
+               [else state]))))))))
+
+(define tree%
+  (class unary-attribute%
+    (super-new)
+
+    (inherit-field rands)
+
+    (define/augride (join state)
+      (let ([t (send state walk (car rands))])
+        (cond
+         [(list? t) (send (list/a t) join state)]
+         [(send state get-attribute list% t) state]
+         [(tree? t)
+          (match-define (tree nodes) t)
+          (and (list? nodes)
+               (for/fold ([state state]) ([node nodes])
+                 #:break (not state)
+                 (send (list/a node) join state)))]
+         [else #f])))
+
+    (define/augride (augment-stream stream) 
+      (stream-map (lambda (state) (send this join state)) stream))
+
+    (define/augride (satisfy state)
+      (let ([t (send state walk (car rands))])
+        (or (tree? t) (list? t) (tree/a t))))))
+
+(define (tree/a t)
+  (new tree% [rands (list t)]))
 
 (define list%
-  (class attribute%
+  (class tree%
     (super-new)
+
+    (init-field [body #f])
+
+    (unless (or (not body) (is-a? body base%))
+      (error 'list% "malformed body ~a" body))
+    
     (inherit-field rands)
     (define ls (car rands))
 
-    (define/augment (join state)
+    (define (init-body)
       (disj (associate ls `())
-            (let ([a (var 'a)] [d (var 'd)])
-              (when (associate (cons a d) ls)
-                (list/a d)))))))
+            (list/a (@ (cdr/o ls)))))
+    
+    (define/override (join state)
+      (match (send (or body (init-body)) satisfy state)
+        [#f #f]
+        [#t state]
+        [c^ (send state set-attribute (new list% [rands rands] [body c^]))]))
+
+    (define/override (satisfy state)
+      (match (send (or body (init-body)) satisfy state)
+        [#f #f]
+        [#t #t]
+        [c^ (new list% [rands rands] [body c^])]))
+
+    (define/override (augment-stream stream)
+      (send (or body (init-body)) augment-stream stream))))
 
 (define (list/a ls)
-  (send (new list% [rands (list ls)]) join empty-state))
+  (new list% [rands (list ls)]))
 
 (define length%
-  (class attribute%
+  (class binary-attribute%
     (super-new)
 
     (inherit-field rands)
@@ -880,119 +998,113 @@
       (cond
        [(not (null? (cdr rands))) (cadr rands)]
        [(list? x) (length x)]
-       [else (range 0 100)]))
+       [else (range-dom 0 100)]))
 
-    (define/public (get-value) n)
-
+    ;; this should be written with Racket because the idea is to make
+    ;; calculating length fast; length does no enumeration itself
     (define/augment (join state)
       (let ([x (send state walk x)]
             [n (send state walk n)])
-        #;
         (cond
-         [(and (list? x) (number? n))
-          (and (= (length x) n) state)]
-         [(list? x)
-          (send state associate n (length x))]
-         [(tree? x)
-          (match-define (tree nodes) x)
-          (define n* (for/list ([node nodes]) (var (gensym 'n))))
-          (let* ([state (for/fold ([state state]) ([node nodes] [n n*])
-                          (and state (send state set-attribute (new length% [rands (list node n)]))))]
-                 [state^ (apply +fd (append n* (list n)))])
-            (and state^ (send state^ join state)))]
-         [(number? n)
-          (send state associate x (for/list ([i n]) (var 'n)))]
-         [else (send state set-attribute (new length% [rands (list x n)]))])
+         [(send state get-attribute this% x)
+          ;; if there's already a length attribute, then set the new
+          ;; length equal to the one that was already there
+          => (lambda (n^) (send state associate n n^))]
+         [(send (tree/a x) join state)
+          => (lambda (state)
+               (cond
+                [(and (list? x) (number? n))
+                 (and (= (length x) n) state)]
+                [(and (tree? x) (number? n))
+                 (define n* (for/list ([node (tree-nodes x)])
+                              (var (gensym 'n))))
+                 (send (apply conj 
+                              (apply +fd (append n* (list n)))
+                              (for/list ([node (tree-nodes x)] [n n*])
+                                (length/a node n)))
+                       join state)]
+                [(number? n)
+                 (send state associate x (for/list ([i n]) (var 'n)))]
+                [(and (list? x) (var? n))
+                 (send state associate n (length x))]
+                [(and (list? x) (pair? n))
+                 (and (memv-dom? x n) state)]
+                [(pair? x)
+                 (send (length/a (cdr x) (sub1/o n)) join state)]
+                [(null? x)
+                 (send state associate n 0)]
+                [else (send state set-attribute (length/a x n))]))]
+         [else #f])))
 
-        (printf "length: ~a ~a\n" this state)
-        (let ([state^ (disj
-                       (conj (associate n 0)
-                             (associate x `()))
-                       (let ([n^ (var (gensym 'n))] [a (var 'a)] [d (var 'd)])
-                         (when (associate (cons a d) x)
-                           (conj 
-                            (+fd n^ 1 n)
-                            (new length% [rands (list d n^)])
-                            ))))])
-          (and state^ (send state^ join state)))))))
+    (define/public (get-value) n)))
 
 (define (length/a x n)
-  (send (new length% [rands (list x n)]) join empty-state))
+  (new length% [rands (list x n)]))
 
-(define tree-unify%
-  (class constraint%
-    (super-new)
-    (inherit-field rands)
-
-    (define/public (join state)
-      (let ([t (send state walk (car rands))]
-            [v (send state walk (cadr rands))])
-        (cond
-         [(not (var? v))
-          (verify-tree t v state)]
-         [else
-          (match-define (tree nodes) t)
-          (cond
-           [(null? nodes) 
-            (send state associate v `())]
-           [(pair? (first nodes))
-            (let ([a (var (gensym 'a))] [d (var (gensym 'd))])
-              (let* ([state (send state associate (cons a d) v)]
-                     [state (and state (send state associate (caar nodes) a))])
-                (and state
-                     (send (new tree-unify% [rands (list d (tree (cons (cdar nodes) (cdr nodes))))])
-                           join state))))]
-           [else (send state add-constraint (new tree-unify% [rands (list t v)]))])])))
-
-    (define (verify-tree t v state) ;; v is not a var
-      (match-define (tree nodes) t)
-      (cond
-       [(null? v)
-        (send (apply conj (for/list ([node nodes]) (associate node `())))
-              join state)]
-       [(pair? v)
-        (send (conj (new tree-first% [rands (list t (car v))])
-                    (new tree-rest%  [rands (list t (cdr v))]))
-              join state)]
-       [else #f]))))
-
-(define (tree-unify t v)
-  (let ([n (var (gensym 'n))])
-    (conj (length/a t n)
-          (length/a v n)
-          (new tree-unify% [rands (list t v)]))))
-
-(define tree-first%
-  (class constraint%
-    (super-new)
-    (inherit-field rands)
-
-    (define/public (join state)
-      (let ([t (send state walk (car rands))]
-            [v (send state walk (cadr rands))])
-        (match-define (tree nodes) t)
-        (cond
-         [(pair? (first nodes))
-          (send state associate v (caar nodes))]
-         [else (send state add-constraint (new this% [rands (list t v)]))])))))
-
-(define tree-rest%
-  (class constraint%
-    (super-new)
-    (inherit-field rands)
-
-    (define/public (join state)
-      (let ([t (send state walk (car rands))]
-            [v (send state walk (cadr rands))])
-        (match-define (tree nodes) t)
-        (cond
-         [(null? nodes) #f]
-         [(pair? (first nodes))
-          (send (new tree-unify% [rands (list (tree (cons (cdar nodes) (cdr nodes))) v)])
-                join state)]
-         [else (send state add-constraint (new this% [rands (list t v)]))])))))
-
-(define (run constraint)
-  (unless (is-a? constraint constraint%)
+(define (run constraint [n #f])
+  (unless (is-a? constraint base%)
     (error 'run "not given a constraint; ~a" constraint))
-  (take (send constraint join empty-state)))
+  (cond
+   [(send constraint join empty-state)
+    => (lambda (state) (send state narrow n))]
+   [else '()]))
+
+(define cdr%
+  (class* constraint% (functionable%)
+    (super-new)
+    (inherit-field rands)
+
+    (define ls (car rands))
+
+    (define/public (->out state k)
+      (let ([ls (send state walk ls)])
+        (cond
+         [(pair? ls) (cdr ls)]
+         [(object? ls)
+          (let ([ls (send ls ->out state k)])
+            (cond
+             [(pair? ls) (cdr ls)]
+             [(not (or (var? ls) (object? ls))) (k #f)]
+             [else (new cdr% [rands (list ls)])]))]
+         [(not (var? ls)) (k #f)]
+         [else (new cdr% [rands (list ls)])])))
+
+    (define/public (->rel v state)
+      (let ([ls (send state walk ls)])
+        (cond
+         [(object? ls)
+          (let ([lso (var 'lso)])
+            (let ([state (send ls ->rel lso state)])
+              (send state add-constraint (new this% [rands (list lso v)]))))]
+         [else (send (cdr/o ls v) join state)])))
+
+    (define/public (->stream state)
+      (let ([ls (send state walk ls)])
+        (printf "cdr%: ~a ~a\n" ls state)
+        (cond
+         [(pair? ls) state]
+         [else
+          (let ([a (var (gensym 'a))] [d (var (gensym 'd))])
+            (send state associate (cons a d) (car rands)))])))
+    
+    (define/augment (join state)
+      (let ([ls (send state walk ls)]
+            [out (send state walk (cadr rands))])
+        (cond
+         [(pair? ls) 
+          (send state associate (cdr ls) out)]
+         [(null? out) 
+          (let ([a (var 'a)])
+            (send state associate (list a) ls))]
+         [else (send state add-constraint (cdr/o ls out))])))))
+
+(define (cdr/c . rands)
+  (new cdr% [rands rands]))
+(define cdr/o cdr/c)
+
+(define sub1/o
+  (case-lambda
+   [(n) (+fd n 1)]
+   [(n m) (+fd n 1 m)]))
+
+(define (@ c) c)
