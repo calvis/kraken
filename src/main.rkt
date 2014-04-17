@@ -874,30 +874,29 @@
   (new dom% [rands (list x d)]))
 
 (define (+fd . n*)
-  (cond
-   [(or (null? n*) (null? (cdr n*))) 
-    succeed]
-   [(null? (cddr n*)) 
-    (associate (car n*) (cadr n*))]
-   [(null? (cdddr n*))
-    (new +fd% [rands n*])]
-   [else
-    (match-define (list n1 n2 rest ...) n*)
-    (let ([n^ (var (gensym 'n))])
-      (conj (+fd n1 n2 n^)
-            (apply +fd (cons n^ rest))))]))
+  (new +fd [rands n*]))
 
 (define functionable% (interface () ->out ->rel ->stream))
 
 (define +fd%
-  (class constraint%
+  (class* constraint% (functionable%)
     (super-new)
-    (inherit-field rands)
-    (match-define (list u v w) rands)
+    (inherit-field [n* rands])
 
-    ;; KEEP PUTTING IT IN until the attributes it is trying to assign
-    ;; are TRIVIALLY TRUE
-    (define/augment (join state)
+    (define/public (join state)
+      (cond
+       [(or (null? n*) (null? (cdr n*))) 
+        succeed]
+       [(null? (cdddr n*))
+        (apply join/3 state u v w)]
+       [else
+        (match-define (list n1 n2 rest ...) n*)
+        (let ([n^ (var (gensym 'n))])
+          (send (conj (+fd n1 n2 n^)
+                      (apply +fd (cons n^ rest)))
+                join state))]))
+
+    (define (join/3 state u v w)
       (let ([u (send state walk u)]
             [v (send state walk v)]
             [w (send state walk w)])
@@ -923,7 +922,15 @@
                        [state (and state (send (dom/a v new-v-dom) join state))]
                        [state (and state (send (dom/a w new-w-dom) join state))])
                   state)]
-               [else state]))))))))
+               [else state]))))))
+
+    ;; (+fd x y) = z
+    (define/public (->out state k)
+      (let ([x (send state walk (car rands))]
+            [y (send state walk (cadr rands))])
+        (cond
+         [(and (number? x) (number? y)) (+ x y)]
+         [else (send state add-constraint )])))))
 
 (define tree%
   (class unary-attribute%
