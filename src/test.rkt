@@ -262,6 +262,13 @@
    disj-tests
    when-tests))
 
+(define-dependency-test map-tests
+  (operator-tests)
+
+  (check-equal? 
+   (run (map/o associate (list x) (list y)))
+   (run (associate x y))))
+
 (define-dependency-test dom-tests
   (operator-tests)
 
@@ -292,19 +299,19 @@
   (operator-tests dom-tests)
 
   (check-equal?
-   (run (+fd x 5 7))
+   (run (+/o x 5 7))
    (run (associate x 2)))
 
   (check-equal?
    (run (conj (dom/a x (range-dom 1 10))
-              (+fd x 5 7)))
+              (+/o x 5 7)))
    (run (associate x 2)))
 
   (check-equal?
-   (run (conj (+fd x 5 7)
+   (run (conj (+/o x 5 7)
               (dom/a x (range-dom 1 10))))
    (run (conj (dom/a x (range-dom 1 10))
-              (+fd x 5 7)))))
+              (+/o x 5 7)))))
 
 (define-dependency-test list-tests
   ()
@@ -360,8 +367,9 @@
     (check-equal? (length (send (car answer) walk x)) 3 (~a (car answer))))
 
   (define n1 (var 'n1)) (define n2 (var 'n2))
-  (let ([answer (run (conj (length/a x n1) (length/a y n2) (+fd n1 n2 2)) 1)])
-    (check-false (null? answer)))
+  (let ([answer (run (conj (length/a x n1) (length/a y n2) (+/o n1 n2 1)) 4)])
+    (check-false (null? answer))
+    (check-equal? (length answer) 3 (~a answer)))
 )
 
 (define-dependency-test tree-tests
@@ -393,10 +401,10 @@
     (printf "=====================================\n")
     (pretty-print state)
 
-    (let ([answer (send state narrow 2)])
+    (let ([answer (send state narrow 4)])
       (check-false (null? answer))
       (check-true (is-a? (car answer) state%) (~a (car answer)))
-      (pretty-print (cadr answer))
+      (pretty-print (caddr answer))
 
       (pretty-print (map (lambda (state) (send state reify (list x y))) answer)))))
 
@@ -410,11 +418,14 @@
    (time (when-tests))
    (time (disj-tests))
    (time (operator-tests))
-   (time (list-tests))
-   (time (dom-tests))
-   (time (fd-tests))
-   (time (length-tests))
-   (time (tree-tests))))
+
+   (time (map-tests))
+   ;; (time (list-tests))
+   ;; (time (dom-tests))
+   ;; (time (fd-tests))
+   ;; (time (length-tests))
+   ;; (time (tree-tests))
+   ))
 
 (module+ main
   (parameterize ([pretty-print-columns 200])
