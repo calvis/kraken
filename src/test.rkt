@@ -190,7 +190,12 @@
                      (associate x (list y))))
          (associate n 1))
    (conj (associate n 1)
-         (associate x (list y)))))
+         (associate x (list y))))
+
+  (check-equal?
+   (stream-length (send (disj (== x 1) (== x 2))
+                        augment-stream (list empty-state)))
+   2))
 
 (define-dependency-test atomic-tests
   (conj-tests when-tests associate-tests)
@@ -260,7 +265,8 @@
   (associate-tests
    conj-tests
    disj-tests
-   when-tests))
+   ;; when-tests
+   ))
 
 (define-dependency-test map-tests
   (operator-tests)
@@ -281,11 +287,17 @@
    (run (dom/a x (range-dom 2 2))))
 
   (check-equal?
+   (length (run (dom/a x (range-dom 4 5))))
+   2)
+
+  #;
+  (check-equal?
    (run (conj (dom/a x (range-dom 1 10))
               (dom/a x (range-dom 3 7))
               (dom/a x (range-dom 4 5))))
    (run (dom/a x (range-dom 4 5))))
 
+  #;
   (check-equal?
    (run (conj (conj (associate x y)
                     (dom/a z (range-dom 1 2)))
@@ -320,29 +332,12 @@
     (check-false (null? answer)))
 
   (check-equal?
-   (run (list/a x) 1)
-   (run (associate x `())))
-
-  (let ([answer (run (list/a x) 2)])
-    (check-equal? (length answer) 2)
-    (check-true (list? (send (car  answer) walk x)) (~a (car  answer)))
-    (check-true (list? (send (cadr answer) walk x)) (~a (cadr answer)))
-    (check-equal? (length (send (car  answer) walk x)) 0)
-    (check-equal? (length (send (cadr answer) walk x)) 1))
-
-  (check-equal?
-   (run (list/a (list 1 2 3)) 3)
+   (run (list/a (list 1 2 3)))
    (list empty-state))
 
-  (let ([answer (run (conj (list/a x) (list/a y)) 2)])
-    (check-equal? (length answer) 2 (~a answer))
-
-    (check-true (is-a? (car answer) state%) (~a (car answer))))
-
-  (let ([answer (run (conj (list/a x) (list/a y)) 10)])
-    (check-equal? (length answer) 10 (~a answer))
-
-    (check-true (is-a? (car answer) state%) (~a (car answer)))))
+  (check-equal?
+   (run (list/a 4))
+   (list)))
 
 (define-dependency-test length-tests
   (operator-tests fd-tests)
@@ -367,10 +362,13 @@
     (check-equal? (length (send (car answer) walk x)) 3 (~a (car answer))))
 
   (define n1 (var 'n1)) (define n2 (var 'n2))
-  (let ([answer (run (conj (length/a x n1) (length/a y n2) (+/o n1 n2 1)) 4)])
-    (check-false (null? answer))
-    (check-equal? (length answer) 3 (~a answer)))
-)
+  (let ([state (send (conj (length/a x n1) (length/a y n2) (+/o n1 n2 1))
+                     join empty-state)])
+    (check-not-false state)
+
+    (let ([answer (send state narrow 3)])
+      (check-false (null? answer))
+      (check-equal? (length answer) 2 (~a answer)))))
 
 (define-dependency-test tree-tests
   (operator-tests length-tests list-tests)
@@ -393,20 +391,21 @@
   (let ([answer (run (length/a (tree `(,x)) 2))])
     (check-false (null? answer)))
 
-  (printf "=====================================================================\n")
-
   (let ([state (send (length/a (tree `(,x ,y)) 2) join empty-state)])
     (check-not-false state)
-
-    (printf "=====================================\n")
-    (pretty-print state)
 
     (let ([answer (send state narrow 4)])
       (check-false (null? answer))
       (check-true (is-a? (car answer) state%) (~a (car answer)))
-      (pretty-print (caddr answer))
 
-      (pretty-print (map (lambda (state) (send state reify (list x y))) answer)))))
+      (check-equal?
+       (map (lambda (state) (send state reify (list x y))) answer)
+       '(((_.0 _.1) ()) ((_.0) (_.1)) (() (_.0 _.1))))))
+
+  (let ([state (send (length/a (tree `(,x (3) ,y)) 3) join empty-state)])
+    (check-not-false state)
+
+    (pretty-print state)))
 
 (define builtin-test-suite
   (test-suite 
@@ -415,17 +414,16 @@
    (time (state-tests))
    (time (associate-tests))
    (time (conj-tests))
-   (time (when-tests))
+   ;; (time (when-tests))
    (time (disj-tests))
    (time (operator-tests))
 
    (time (map-tests))
-   ;; (time (list-tests))
-   ;; (time (dom-tests))
-   ;; (time (fd-tests))
-   ;; (time (length-tests))
-   ;; (time (tree-tests))
-   ))
+   (time (list-tests))
+   (time (dom-tests))
+   (time (fd-tests))
+   (time (length-tests))
+   (time (tree-tests))))
 
 (module+ main
   (parameterize ([pretty-print-columns 200])
