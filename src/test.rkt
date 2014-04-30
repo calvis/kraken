@@ -24,8 +24,8 @@
   ()
 
   (check-equal?
-   (new state% [s `((,x . 5))])
-   (new state% [s `((,x . 5))]))
+   (new join% [s `((,x . 5))])
+   (new join% [s `((,x . 5))]))
 
   (check-equal?
    (run succeed)
@@ -35,193 +35,142 @@
   (state-tests)
 
   (check-equal?
-   (run (associate x 5))
-   (list (new state% [s `((,x . 5))]))
-   "associate var-int")
+   (run (== x 5))
+   (list (new join% [s `((,x . 5))])))
   
   (check-equal?
-   (run (associate 5 x))
-   (run (associate x 5))
+   (run (== 5 x))
+   (run (== x 5))
    "associate int-var")
   
   (check-equal?
-   (run (associate 5 (cons 1 2)))
+   (run (== 5 (cons 1 2)))
    (run fail)
    "associate int-list")
 
   (check-equal?
-   (run (associate (cons 1 2) 5))
+   (run (== (cons 1 2) 5))
    (run fail)
    "associate list-int")
 
   (check-equal?
-   (run (associate x (cons 1 2)))
-   (list (new state% [s `((,x . ,(cons 1 2)))]))
+   (run (== x (cons 1 2)))
+   (list (new join% [s `((,x . ,(cons 1 2)))]))
    "associate var-list")
 
   (check-equal?
-   (run (associate (cons 1 2) x))
-   (run (associate x (cons 1 2)))
+   (run (== (cons 1 2) x))
+   (run (== x (cons 1 2)))
    "associate list-var")
 
   (check-equal?
-   (run (associate '() '()))
+   (run (== '() '()))
    (list empty-state))
 
   (check-equal? 
-   (run (associate x '()))
-   (list (new state% [s `((,x . ()))]))))
+   (run (== x '()))
+   (list (new join% [s `((,x . ()))]))))
 
 (define-dependency-test conj-tests 
   (associate-tests)
 
   (check-equal?
-   (run (conj (associate x 5)))
-   (run (associate x 5))
-   "conj one clause")
+   (run (conj (== x 5)))
+   (run (== x 5)))
   
   (check-equal?
-   (run (conj (conj (conj (conj (conj (associate x 5)))))))
-   (run (associate x 5))
-   "conj silly nesting")
+   (run (conj (conj (conj (conj (conj (== x 5)))))))
+   (run (== x 5)))
   
   (check-equal?
-   (run (conj (associate x 5)
-              (associate x 5)))
-   (run (conj (associate x 5)))
-   "conj identical clauses")
+   (run (conj (== x 5)
+              (== x 5)))
+   (run (conj (== x 5))))
   
   (check-equal?
-   (run (associate (cons 1 2) (cons 3 4)))
-   (run fail)
-   "associate different list-list")
+   (run (== (cons 1 2) (cons 3 4)))
+   (run fail))
 
   (check-equal?
-   (run (associate (list 1 2) (list 1 2)))
-   (run (conj (associate 1 1) (associate 2 2)))
-   "associate lists as conj associates")
+   (run (== (list 1 2) (list 1 2)))
+   (run (conj (== 1 1) (== 2 2)))
+   "== lists as conj ==s")
 
   (check-equal? (run (conj fail)) (run fail))
 
-  (let ([state (run (conj (associate (cons (var 'a) (var 'd)) x)
-                          (associate x (list 1 2 3))))])
+  (let ([state (run (conj (== (cons (var 'a) (var 'd)) x)
+                          (== x (list 1 2 3))))])
     (check-not-false state)))
-
-(define-dependency-test when-tests
-  (associate-tests conj-tests)
-
-  (check-equal? 
-   (run (when succeed (associate x 5)))
-   (run (associate x 5))
-   "when succeed")
-
-  (check-equal?
-   (run (when fail (associate x 5)))
-   (run succeed)
-   "when fail")
-
-  (define z (var 'z))
-  (check-equal?
-   (run (conj (when (conj (associate x 5)
-                          (associate y 6))
-                (associate z 4))
-              (associate x 5)
-              (associate y 6)))
-   (run (conj (associate x 5)
-              (associate y 6)
-              (associate z 4))))
-
-  (check-equal?
-   (run (conj (when (associate x 5)
-                (associate z 4))
-              (associate x y)
-              (associate y 5)))
-   (run (conj (associate x y)
-              (associate y 5)
-              (associate z 4))))
-
-  (check-equal?
-   (run (conj (associate x y)
-              (when (associate x 5)
-                (associate z 4))
-              (when (associate z 4)
-                succeed)))
-   (run (conj (associate x y)
-              (when (associate y 5)
-                (associate z 4))
-              (when (associate z 4)
-                succeed))))
-
-  (check-equal?
-   (run (when fail (new (class constraint%
-                          (super-new)
-                          (define/augment (join state)
-                            (join state))))))
-   (run succeed)
-   "termination check"))
 
 (define-dependency-test disj-tests
   (associate-tests)
 
   (check-equal?
-   (disj (associate x 5))
-   (associate x 5)
-   "disj one clause")
+   (run (disj (== x 5)))
+   (run (== x 5)))
 
   (check-equal? 
-   (conj (disj (associate x 5))
-         (associate x 5))
-   (associate x 5)
-   "conj disj associate nesting")
+   (run (conj (disj (== x 5))
+              (== x 5)))
+   (run (== x 5)))
   
   (check-equal? 
-   (conj (disj (associate x 5)
-               (associate x 6))
-         (associate x 5))
-   (associate x 5)
-   "disj impossible clause")
+   (run (conj (disj (== x 5)
+                    (== x 6))
+              (== x 5)))
+   (run (== x 5)))
 
   (define n (var 'n))
 
   (check-equal?
-   (conj (disj (conj (associate n 0)
-                     (associate x '()))
-               (conj (associate n 1)
-                     (associate x (list y))))
-         (associate n 1))
-   (conj (associate n 1)
-         (associate x (list y))))
+   (run (conj (disj (conj (== n 0)
+                          (== x '()))
+                    (conj (== n 1)
+                          (== x (list y))))
+              (== n 1)))
+   (run (conj (== n 1)
+              (== x (list y)))))
 
   (check-equal?
-   (stream-length (send (disj (== x 1) (== x 2))
-                        augment-stream (list empty-state)))
-   2))
+   (run (disj (== x 1) (== x 2)))
+   (list (send empty-state associate x 1)
+         (send empty-state associate x 2)))
+
+  (check-equal?
+   (map
+    (lambda (state) (send state reify (list x y)))
+    (run (conj (disj (== x 0) (== x 1))
+               (disj (== y 0) (== y 1)))))
+   '((0 0)
+     (0 1)
+     (1 0)
+     (1 1))))
 
 (define-dependency-test atomic-tests
   (conj-tests when-tests associate-tests)
 
   (check-equal? 
-   (conj (atomic x) (associate x 5))
-   (associate x 5)
-   "atomic associate")
+   (conj (atomic x) (== x 5))
+   (== x 5)
+   "atomic ==")
   
   (check-equal? 
-   (conj (atomic x) (when (atomic x) (associate x 5)))
-   (conj (atomic x) (associate x 5))
-   "atomic associate when")
+   (conj (atomic x) (when (atomic x) (== x 5)))
+   (conj (atomic x) (== x 5))
+   "atomic == when")
   
   (check-equal? 
-   (conj (when (atomic x) (associate x 5)) (atomic x))
-   (conj (associate x 5) (atomic x))
-   "when atomic associate")
+   (conj (when (atomic x) (== x 5)) (atomic x))
+   (conj (== x 5) (atomic x))
+   "when atomic ==")
   
   (check-equal? 
    (conj (when (atomic x)
-           (associate x 5))
+           (== x 5))
          (atomic y)
-         (associate y x))
-   (conj (associate x 5) (associate y x))
-   "atomic associate chaining"))
+         (== y x))
+   (conj (== x 5) (== y x))
+   "atomic == chaining"))
 
 (define-dependency-test !=-tests
   (associate-tests conj-tests disj-tests)
@@ -264,60 +213,55 @@
 (define-dependency-test operator-tests
   (associate-tests
    conj-tests
-   disj-tests
-   ;; when-tests
-   ))
+   disj-tests))
 
 (define-dependency-test map-tests
   (operator-tests)
 
   (check-equal? 
-   (run (map/o associate (list x) (list y)))
-   (run (associate x y))))
+   (run (map/o == (list x) (list y)))
+   (run (== x y))))
 
 (define-dependency-test dom-tests
   (operator-tests)
 
   (check-equal?
    (run (dom/a x (range-dom 2 2)))
-   (run (associate x 2)))
+   (run (== x 2)))
 
   (check-equal?
    (run (conj (dom/a x (range-dom 1 2)) (dom/a x (range-dom 2 3))))
    (run (dom/a x (range-dom 2 2))))
 
-  (check-equal?
-   (length (run (dom/a x (range-dom 4 5))))
-   2)
+  (let ([answer (run (dom/a x (range-dom 4 5)))])
+    (check-equal? (length answer) 2 (~a answer)))
+
+  (let ([state (conj (dom/a x (range-dom 1 10))
+                     (dom/a x (range-dom 3 7))
+                     (dom/a x (range-dom 4 5)))])
+    (check-equal? (run state) (run (dom/a x (range-dom 4 5)))))
 
   #;
   (check-equal?
-   (run (conj (dom/a x (range-dom 1 10))
-              (dom/a x (range-dom 3 7))
-              (dom/a x (range-dom 4 5))))
-   (run (dom/a x (range-dom 4 5))))
-
-  #;
-  (check-equal?
-   (run (conj (conj (associate x y)
+   (run (conj (conj (== x y)
                     (dom/a z (range-dom 1 2)))
-              (conj (associate y z)
+              (conj (== y z)
                     (dom/a x (range-dom 2 3)))))
-   (run (conj (associate x y)
-              (associate y z)
-              (associate z 2)))))
+   (run (conj (== x y)
+              (== y z)
+              (== z 2)))))
 
 (define-dependency-test fd-tests
   (operator-tests dom-tests)
 
   (check-equal?
    (run (+/o x 5 7))
-   (run (associate x 2)))
+   (run (== x 2)))
 
   (check-equal?
    (run (conj (dom/a x (range-dom 1 10))
               (+/o x 5 7)))
-   (run (associate x 2)))
+   (run (== x 2)))
 
   (check-equal?
    (run (conj (+/o x 5 7)
@@ -362,16 +306,22 @@
     (check-equal? (length (send (car answer) walk x)) 3 (~a (car answer))))
 
   (define n1 (var 'n1)) (define n2 (var 'n2))
-  (let ([state (send (conj (length/a x n1) (length/a y n2) (+/o n1 n2 1))
-                     join empty-state)])
+  (let ([state (conj (length/a x n1) (length/a y n2) (+/o n1 n2 1))])
     (check-not-false state)
-
     (let ([answer (send state narrow 3)])
       (check-false (null? answer))
       (check-equal? (length answer) 2 (~a answer)))))
 
 (define-dependency-test tree-tests
   (operator-tests length-tests list-tests)
+
+  (check-equal?
+   (run (conj (list/a x) (tree/a x)))
+   (run (list/a x)))
+
+  (check-equal?
+   (run (conj (list/a x) (tree/a x)))
+   (run (conj (tree/a x) (list/a x))))
 
   (let ([answer (run (length/a (tree `()) 0))])
     (check-false (null? answer)))
@@ -400,12 +350,111 @@
 
       (check-equal?
        (map (lambda (state) (send state reify (list x y))) answer)
-       '(((_.0 _.1) ()) ((_.0) (_.1)) (() (_.0 _.1))))))
+       '((() (_.0 _.1)) ((_.0) (_.1)) ((_.0 _.1) ())))))
 
   (let ([state (send (length/a (tree `(,x (3) ,y)) 3) join empty-state)])
     (check-not-false state)
+    (let ([answer (run state)])
+      (check-false (null? answer))
+      (check-equal? (length answer) 3)))
 
-    (pretty-print state)))
+  (define n (var 'n))
+  (let ([answer (run (conj (== z (tree `(,x (3) ,y)))
+                           (length/a z n)
+                           (dom/a n (range-dom 1 5))))])
+    (check-false (null? answer))
+    (check-equal? (length answer) 15)))
+
+(define-dependency-test dots-tests
+  (operator-tests list-tests tree-tests)
+
+  (check-equal?
+   (run (conj (tree/a x) (dots/a (lambda (v) succeed) x)))
+   (run (dots/a (lambda (v) succeed) x)))
+  
+  (check-equal?
+   (send (send (dots/a (lambda (v) succeed) x) join (new join%))
+         set-attribute (tree/a x))
+   (send (dots/a (lambda (v) succeed) x) join (new join%)))
+  
+  (let ([state (conj (dots/a (lambda (v) (== v 5)) x)
+                     (length/a x 3))])
+    (let ([answer (run state)])
+      (check-false (null? answer))
+      (check-equal? (map (lambda (state) (send state reify x)) answer) 
+                    '((5 5 5))))))
+
+(define-dependency-test stlc-tests
+  (operator-tests dots-tests)
+
+  (define (symbol/a x)
+    (new (class unary-attribute%
+           (super-new)
+           (inherit-field rands)
+           
+           (define/augment (join state)
+             (let ([x (send state walk (car rands))])
+               (cond
+                [(symbol? x)
+                 state]
+                [(var? x)
+                 (send state set-attribute (new this% [rands (list x)]))]
+                [else fail])))
+           
+           (define/augride (satisfy state)
+             (let ([x (send state walk (car rands))])
+               (or (symbol? x) (and (var? x) (symbol/a x))))))
+         [rands (list x)]))
+
+  (check-equal? (run (symbol/a 'x)) (list empty-state))
+  (check-equal? (run (symbol/a 5))  (list))
+
+  (define (lookup/o gamma x t)
+    (new (class constraint%
+           (super-new)
+
+           (init-field [partial #f])
+           (inherit-field rands)
+           (match-define (list gamma x t) rands)
+           
+           (define/public (body gamma x t)
+             (let ([y (var 'y)] [r (var 'r)] [s (var 's)])
+               (disj
+                (== (@ (car/o gamma)) `(,x . ,t))
+                (conj (== (@ (car/o gamma)) `(,y . ,s))
+                      (lookup/o (@ (cdr/o r)) x t)))))
+
+           (define/augment (join state)
+             (match (send (or partial (body gamma x t)) satisfy state)
+               [#f (new fail%)]
+               [#t state]
+               [c^ (cond
+                    [(is-a? c^ join%) (send state join c^)]
+                    [else (send state add-constraint (new this% [rands rands] [partial c^]))])]))
+           
+           (define/augment (satisfy state)
+             (match (send (or partial (body gamma x t)) satisfy state)
+               [#f #f]
+               [#t #t]
+               [c^ (new this% [rands rands] [partial c^])]))
+
+           (define/augment (augment-stream stream)
+             (send (or partial (body gamma x t)) augment-stream stream)))
+         [rands (list gamma x t)]))
+
+  (check-equal?
+   (run (lookup/o `((x . int)) `x `int))
+   (list (new join%)))
+
+  (printf "==================================\n")
+  (check-equal?
+   (run (lookup/o `((x . int)) x `int))
+   (run (== x 'x)))
+
+  #;
+  (define (!-/o gamma expr type)
+    (disj
+     (conj (== expr )))))
 
 (define builtin-test-suite
   (test-suite 
@@ -414,7 +463,6 @@
    (time (state-tests))
    (time (associate-tests))
    (time (conj-tests))
-   ;; (time (when-tests))
    (time (disj-tests))
    (time (operator-tests))
 
@@ -423,8 +471,11 @@
    (time (dom-tests))
    (time (fd-tests))
    (time (length-tests))
-   (time (tree-tests))))
+   (time (tree-tests))
+   (time (dots-tests))
+
+   (time (stlc-tests))))
 
 (module+ main
-  (parameterize ([pretty-print-columns 200])
+  (parameterize ([pretty-print-columns 102])
     (time (void (run-tests builtin-test-suite)))))
