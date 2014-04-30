@@ -29,6 +29,9 @@
         (stream-map stream-first stream)
         (stream-interleave (stream-map stream-rest stream)))))]))
 
+(define ((update-constraints state k bad) o)
+  (if (is-a? o functionable%) (send o ->out state k bad) o))
+
 ;; =============================================================================
 ;; variables
 
@@ -133,10 +136,6 @@
       (map recur? rands (get-field rands obj)))
     (define/public (equal-hash-code-of hash-code) 5)
     (define/public (equal-secondary-hash-code-of hash-code) 5)
-
-    (define ((update-constraints state k bad) o)
-      (if (is-a? o functionable%)
-          (send o ->out state k bad) o))
 
     (define/public (update-rands rands)
       (new this% [rands rands]))
