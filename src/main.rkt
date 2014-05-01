@@ -145,7 +145,8 @@
        (lambda (k)
          (let ([rands^ (map (update-constraints state k fail) rands)])
            (cond
-            [(ormap (curryr is-a? delay%) rands^)
+            [(and (ormap (curryr is-a? delay%) rands^)
+                  (not (is-a? this ==%)))
              (send state add (send this update-rands rands^))]
             [(and (findf (curryr is-a? functionable%) rands^))
              (define-values (new-state new-rands)
@@ -1029,8 +1030,7 @@
       (new this% [rands rands] [partial partial] [fn fn]))
 
     (define/override (body ls)
-      (disj (== ls `())
-            (conj (fn (@ (car/o ls))) (dots/a fn (@ (cdr/o ls))))))
+      (disj (== ls `()) (conj (fn (@ (car/o ls))) (dots/a fn (@ (cdr/o ls))))))
 
     (define/override (join state)
       (match (send (or partial (body ls)) satisfy state)
@@ -1231,7 +1231,19 @@
         (cond
          [(pair? ls) 
           (send state associate (car ls) out)]
-         [else (send state associate (cons out (var 'd)) ls)])))))
+         [else (send state associate (cons out (var 'd)) ls)])))
+
+    (define/augment (augment-stream stream)
+      (cond
+       [(null? (cdr rands))
+        (stream-map (lambda (state)
+                      (and state
+                           (let ([ls (send state walk (car rands))])
+                             (cond
+                              [(pair? ls) state]
+                              [else (send state associate (cons (var 'a) (var 'd)) ls)]))))
+                    stream)]
+       [else (error 'augment-stream "not sure why this would happen")]))))
 
 (define (car/o . rands)
   (new car% [rands rands]))
