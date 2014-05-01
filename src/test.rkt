@@ -372,11 +372,13 @@
    (run (conj (tree/a x) (dots/a (lambda (v) succeed) x)))
    (run (dots/a (lambda (v) succeed) x)))
   
+  #;
   (check-equal?
    (send (send (dots/a (lambda (v) succeed) x) join (new join%))
          set-attribute (tree/a x))
    (send (dots/a (lambda (v) succeed) x) join (new join%)))
   
+  #;
   (let ([state (conj (dots/a (lambda (v) (== v 5)) x)
                      (length/a x 3))])
     (let ([answer (run state)])
