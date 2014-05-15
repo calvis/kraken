@@ -128,8 +128,8 @@
                     (conj (== n 1)
                           (== x (list y))))
               (== n 1)))
-   (run (conj (== n 1)
-              (== x (list y)))))
+   (run (conj (== x (list y))
+              (== n 1))))
 
   (check-equal?
    (run (disj (== x 1) (== x 2)))
@@ -276,6 +276,14 @@
     (check-false (null? answer)))
 
   (check-equal?
+   (run (list/a (list)))
+   (list empty-state))
+
+  (check-equal?
+   (run (list/a (list 1)))
+   (list empty-state))
+
+  (check-equal?
    (run (list/a (list 1 2 3)))
    (list empty-state))
 
@@ -284,7 +292,7 @@
    (list)))
 
 (define-dependency-test length-tests
-  (operator-tests fd-tests)
+  (operator-tests list-tests fd-tests)
   
   (check-equal?
    (run (length/a (list 1 2 3) 3))
@@ -306,7 +314,7 @@
     (check-equal? (length (send (car answer) walk x)) 3 (~a (car answer))))
 
   (define n1 (var 'n1)) (define n2 (var 'n2))
-  (let ([state (conj (length/a x n1) (length/a y n2) (+/o n1 n2 1))])
+  (let ([state (send (conj (length/a x n1) (length/a y n2) (+/o n1 n2 1)) join (new join%))])
     (check-not-false state)
     (let ([answer (send state narrow 3)])
       (check-false (null? answer))
@@ -338,6 +346,9 @@
   (let ([answer (run (length/a (tree `((1 2) ())) 2))])
     (check-false (null? answer)))
 
+  (let ([answer (run (conj (== x `(,y ,y)) (list/a `(,y ,y))))])
+    (check-false (null? answer)))
+
   (let ([answer (run (length/a (tree `(,x)) 2))])
     (check-false (null? answer)))
 
@@ -352,11 +363,9 @@
        (map (lambda (state) (send state reify (list x y))) answer)
        '((() (_.0 _.1)) ((_.0) (_.1)) ((_.0 _.1) ())))))
 
-  (let ([state (send (length/a (tree `(,x (3) ,y)) 3) join empty-state)])
-    (check-not-false state)
-    (let ([answer (run state)])
-      (check-false (null? answer))
-      (check-equal? (length answer) 3)))
+  (let ([answer (run (length/a (tree `(,x (3) ,y)) 3))])
+    (check-false (null? answer))
+    (check-equal? (length answer) 3))
 
   (define n (var 'n))
   (let ([answer (run (conj (== z (tree `(,x (3) ,y)))
@@ -369,18 +378,21 @@
   (operator-tests list-tests tree-tests)
 
   (check-equal?
-   (run (conj (tree/a x) (dots/a (lambda (v) succeed) x)))
-   (run (dots/a (lambda (v) succeed) x)))
+   (map (lambda (state) (send state reify x))
+        (run (dots/a (lambda (v) (== v 5)) (list x x x)) 1))
+   '(5))
+
+  (check-equal?
+   (run (conj (tree/a x) (dots/a (lambda (v) succeed) x)) 1)
+   (run (dots/a (lambda (v) succeed) x) 1))
   
-  #;
   (check-equal?
    (send (send (dots/a (lambda (v) succeed) x) join (new join%))
          set-attribute (tree/a x))
    (send (dots/a (lambda (v) succeed) x) join (new join%)))
   
-  #;
-  (let ([state (conj (dots/a (lambda (v) (== v 5)) x)
-                     (length/a x 3))])
+  (newline)
+  (let ([state (conj (length/a x 3) (dots/a (lambda (v) (== v 5)) x))])
     (let ([answer (run state)])
       (check-false (null? answer))
       (check-equal? (map (lambda (state) (send state reify x)) answer) 
@@ -412,19 +424,27 @@
   (check-equal? (run (symbol/a 5))  (list))
 
   (define (lookup/o gamma x t)
-    (new (class constraint%
+    (new (class* constraint% (printable<%>)
            (super-new)
 
            (init-field [partial #f])
            (inherit-field rands)
            (match-define (list gamma x t) rands)
            
+           (define/override (custom-print p depth)
+             (display (list (object-name this%) rands partial) p))
+           (define/override (custom-write p)
+             (write   (list (object-name this%) rands partial) p))
+           (define/override (custom-display p)
+             (display (list (object-name this%) rands partial) p))
+           
            (define/public (body gamma x t)
              (let ([y (var 'y)] [r (var 'r)] [s (var 's)])
-               (disj
-                (== (@ (car/o gamma)) `(,x . ,t))
-                (conj (== (@ (car/o gamma)) `(,y . ,s))
-                      (lookup/o (@ (cdr/o r)) x t)))))
+               (when (shape gamma (cons (var 'a) (var 'd)))
+                 (disj
+                  (== (car/o gamma) `(,x . ,t))
+                  (conj (== (car/o gamma) `(,y . ,s))
+                        (lookup/o (cdr/o r) x t))))))
 
            (define/augment (join state)
              (match (send (or partial (body gamma x t)) satisfy state)
@@ -443,6 +463,15 @@
            (define/augment (augment-stream stream)
              (send (or partial (body gamma x t)) augment-stream stream)))
          [rands (list gamma x t)]))
+
+  (check-equal?
+   (run (== (car/o `((x . int))) (cons `x `int)))
+   (list empty-state))
+
+  (check-equal?
+   (run (when (shape `((x . int)) (cons (var 'a) (var 'd)))
+          (== (car/o `((x . int))) (cons `x `int))))
+   (list empty-state))
 
   (check-equal?
    (run (lookup/o `((x . int)) `x `int))
