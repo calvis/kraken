@@ -1,6 +1,9 @@
 #lang racket/base
 
-(provide (all-defined-out))
+(provide (all-defined-out)
+         (all-from-out "variables.rkt"))
+
+(require "variables.rkt")
 
 (require (rename-in racket/stream [stream-append stream-append-proc]))
 
@@ -34,30 +37,6 @@
 
 (define-syntax-rule (case-shape x [t clause] ...)
   (disj (==> (shape x `t) clause) ...))
-
-;; =============================================================================
-;; variables
-
-;; normal miniKanren vars are actually an instance of a more general
-;; "constrained var", or cvar for short.
-(struct cvar (str x) #:transparent)
-
-;; defines a normal miniKanren var as a cvar that is printed with "_"
-(struct -var cvar () #:transparent
-        #:methods gen:custom-write
-        [(define (write-proc x port mode)
-           (display (format "#~a(~a)" (cvar-str x) (cvar-x x)) port))])
-(define (var x) (-var "_" x))
-(define (var? x) (-var? x))
-(define var-x cvar-x)
-
-(define-syntax-rule (fresh (x ...) body ...)
-  (let ([x (var (gensym 'x))] ...) body ...))
-
-(define (reify-n cvar n)
-  (string->symbol (format "~a.~a" (cvar-str cvar) (number->string n))))
-
-(struct any () #:transparent)
 
 ;; =============================================================================
 ;; substitution
@@ -143,8 +122,11 @@
 
     (define/public (equal-to? obj recur?)
       (map recur? rands (get-field rands obj)))
-    (define/public (equal-hash-code-of hash-code) 5)
-    (define/public (equal-secondary-hash-code-of hash-code) 5)
+    (define/public (equal-hash-code-of hash-code)
+      (+ 1 (hash-code rands)))
+    (define/public (equal-secondary-hash-code-of hash-code)
+      (apply + (map (lambda (r i) (* (expt 10 i) (hash-code r)))
+                    rands (range 0 (length rands)))))
 
     (define/public (update-rands rands)
       (new this% [rands rands]))
@@ -152,7 +134,8 @@
     (define/pubment (join state)
       (call/cc
        (lambda (k)
-         (let ([rands^ (map (update-constraints state k (new fail% [trace this])) rands)])
+         (let ([rands^ (map (update-constraints state k (new fail% [trace this])) 
+                            rands)])
            (cond
             [(and (ormap (curryr is-a? delay%) rands^)
                   (not (is-a? this ==%)))
@@ -269,8 +252,12 @@
            (recur? c (get-field c obj))
            (recur? a (get-field a obj))))
 
-    (define/public (equal-hash-code-of hash-code) 5)
-    (define/public (equal-secondary-hash-code-of hash-code) 5)
+    (define/public (equal-hash-code-of hash-code)
+      (+ 1 (hash-code s) (hash-code c) (hash-code a)))
+    (define/public (equal-secondary-hash-code-of hash-code)
+      (+ (* 1 (hash-code s))
+         (* 10 (hash-code c))
+         (* 100 (hash-code a))))
 
     (define/public (walk u) (walk/internal u s))
 

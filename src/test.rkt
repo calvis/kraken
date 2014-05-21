@@ -16,9 +16,9 @@
                    (finished (cons 'name (finished)))
                    (printf "finished ~a\n" 'name)))))
 
-(define x (var 'x))
-(define y (var 'y))
-(define z (var 'z))
+(define x (fresh (x) x))
+(define y (fresh (y) y))
+(define z (fresh (z) z))
 
 (define-dependency-test state-tests
   ()
