@@ -518,6 +518,9 @@
    (length (run (⊢/o `() `(app (lambda (x) (var x)) (num 5)) `int)))
    1))
 
+(define-dependency-test eigen-tests
+  ())
+
 (define builtin-test-suite
   (test-suite 
    "builtin tests"
@@ -538,7 +541,8 @@
    (time (tree-tests))
    (time (dots-tests))
 
-   (time (stlc-tests))))
+   (time (stlc-tests))
+   (time (eigen-tests))))
 
 (module+ main
   (parameterize ([pretty-print-columns 102])
