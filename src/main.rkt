@@ -1023,7 +1023,7 @@
 
 (define ==>%
   (class* operator% (printable<%>)
-    (init-field test [consequent succeed])
+    (init-field test consequent)
     (super-new)
 
     (define/public (custom-print p depth)
@@ -1048,7 +1048,8 @@
     (define/public (augment-stream stream)
       (error '==>% "trying to augment: ~a\n" this))))
 
-(define (==> t c) (new ==>% [test t] [consequent c]))
+(define (==> t [c succeed]) 
+  (new ==>% [test t] [consequent c]))
 
 (define shape%
   (class constraint%
@@ -1096,7 +1097,9 @@
       (new this% [rands rands] [partial partial] [fn fn]))
 
     (define/override (body ls)
-      (disj (== ls `()) (conj (fn (@ (car/o ls))) (dots/a fn (@ (cdr/o ls))))))
+      (disj (==> (shape ls `()))
+            (==> (shape ls (cons (any) (any)))
+                 (conj (fn (@ (car/o ls))) (dots/a fn (@ (cdr/o ls)))))))
 
     (define/override (join state)
       (match (send (or partial (body ls)) satisfy state)
