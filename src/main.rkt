@@ -1023,8 +1023,8 @@
 
 (define ==>%
   (class* operator% (printable<%>)
-    (init-field test consequent)
     (super-new)
+    (init-field test consequent)
 
     (define/public (custom-print p depth)
       (display (list (object-name this%) test consequent) p))
