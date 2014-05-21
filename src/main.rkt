@@ -32,8 +32,8 @@
 (define ((update-constraints state k bad) o)
   (if (is-a? o functionable<%>) (send o ->out state k bad) o))
 
-(define-syntax-rule (shape-case x [t clause ...] ...)
-  (disj (==> (shape x t) (conj clause ...)) ...))
+(define-syntax-rule (case-shape x [t clause] ...)
+  (disj (==> (shape x `t) clause) ...))
 
 ;; =============================================================================
 ;; variables
@@ -1298,7 +1298,7 @@
       (let ([n (send state walk n)])
         (cond
          [(object? n)
-          (let ([n^ (var 'n^)])
+          (fresh (n^)
             (let ([state (send n ->rel n^ state)])
               (and state (send (+/o v 1 n^) join state))))]
          [else (send (+/o v 1 n) join state)])))
@@ -1370,7 +1370,7 @@
                         (new this% [rel rel] [ls* (map cdr ls*)] [out (cdr out)]))
                   join state)]
            [else
-            (let ([o (var 'o)] [d (var 'r)])
+            (fresh (o d)
               (send (conj (== (cons o d) out)
                           (apply rel (append (map car ls*) (o)))
                           (new this% [rel rel] [ls* (map cdr ls*)] [out d]))

@@ -399,22 +399,20 @@
    (run fail))
 
   (define-constraint (⊢/o gamma expr type)
-    (disj
-     (==> (shape expr `(num ,(any)))
-          (≡ type `int))
-     (==> (shape expr `(var ,(any)))
-          (lookup/o gamma (car/o (cdr/o expr)) type))
-     (==> (shape expr `(lambda (,(any)) ,(any)))
-          (fresh (x body t1 t2)
-            (conj (≡ expr `(lambda (,x) ,body))
-                  (≡ type `(-> ,t1 ,t2))
-                  (⊢/o `((,x . ,t1) . ,gamma) body t2))))
-     (==> (shape expr `(app ,(any) ,(any)))
-          (fresh (fn arg t1)
-            (conj (≡ expr `(app ,fn ,arg))
-                  (⊢/o gamma fn `(-> ,t1 ,type))
-                  (⊢/o gamma arg t1))))))
-
+    (case-shape expr
+      [(num ,(any)) (≡ type `int)]
+      [(var ,(any)) (lookup/o gamma (car/o (cdr/o expr)) type)]
+      [(lambda (,(any)) ,(any))
+       (fresh (x body t1 t2)
+         (conj (≡ expr `(lambda (,x) ,body))
+               (≡ type `(-> ,t1 ,t2))
+               (⊢/o `((,x . ,t1) . ,gamma) body t2)))]
+      [(app ,(any) ,(any))
+       (fresh (fn arg t1)
+         (conj (≡ expr `(app ,fn ,arg))
+               (⊢/o gamma fn `(-> ,t1 ,type))
+               (⊢/o gamma arg t1)))]))
+  
   (check-equal?
    (run (==> (shape `(num 5) `(var ,x)) succeed))
    (run fail))
