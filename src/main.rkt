@@ -1,7 +1,11 @@
 #lang racket/base
 
+;; todo: struct/o
+
 (provide (all-defined-out)
          (all-from-out "variables.rkt"))
+(require (for-syntax racket/base) 
+         (for-syntax syntax/parse))
 
 (require "variables.rkt")
 
@@ -137,9 +141,6 @@
          (let ([rands^ (map (update-constraints state k (new fail% [trace this])) 
                             rands)])
            (cond
-            [(and (ormap (curryr is-a? delay%) rands^)
-                  (not (is-a? this ==%)))
-             (send state add (send this update-rands rands^))]
             [(findf (curryr is-a? functionable<%>) rands^)
              (define-values (new-state new-rands)
                (for/fold ([state state] [rands '()]) ([r rands^])
@@ -160,8 +161,6 @@
        (lambda (k)
          (let ([rands^ (map (update-constraints state k #f) rands)])
            (cond
-            [(ormap (curryr is-a? delay%) rands^)
-             (send this update-rands rands^)]
             [(equal? rands rands^)
              (inner #f satisfy state)]
             [else 
@@ -343,11 +342,16 @@
         (add-constraint x)]
        [(is-a? x attribute%)
         (set-attribute x)]
-       [(is-a? x state%)
-        (join x)]
        [(is-a? x operator%)
         (add-constraint x)]
-       [else (error 'add "cannot add ~a" x)]))
+       [(and (is-a? x join%)
+             (is-a? this pre-join%))
+        (for/fold ([state this]) ([thing (append (get-field c x)
+                                                 (get-field a x))])
+          (send state add thing))]
+       [(is-a? x state%)
+        (join x)]
+       [else (error 'add "cannot add ~a to ~a" x this)]))
 
     (define/public (add-constraint c^)
       (new this% [s s] [c (cons c^ c)] [a a]))
@@ -1099,7 +1103,7 @@
     (define/override (body ls)
       (disj (==> (shape ls `()))
             (==> (shape ls (cons (any) (any)))
-                 (conj (fn (@ (car/o ls))) (dots/a fn (@ (cdr/o ls)))))))
+                 (conj (fn (car/o ls)) (dots/a fn (cdr/o ls))))))
 
     (define/override (join state)
       (match (send (or partial (body ls)) satisfy state)
@@ -1186,12 +1190,7 @@
 
     (define/public (->rel v state)
       (let ([ls (send state walk ls)])
-        (cond
-         [(is-a? ls delay%)
-          (fresh (lso)
-            (let ([state (send ls ->rel lso state)])
-              (and state (send (cdr/o lso v) join state))))]
-         [else (send (cdr/o ls v) join state)])))
+        (send (cdr/o ls v) join state)))
 
     (define/augment (join state)
       (let ([ls (send state walk ls)]
@@ -1242,12 +1241,7 @@
 
     (define/public (->rel v state)
       (let ([ls (send state walk ls)])
-        (cond
-         [(is-a? ls delay%)
-          (fresh (lso)
-            (let ([state (send ls ->rel lso state)])
-              (and state (send (car/o lso v) join state))))]
-         [else (send (car/o ls v) join state)])))
+        (send (car/o ls v) join state)))
 
     (define/augment (join state)
       (unless (not (null? (cdr rands)))
@@ -1312,36 +1306,6 @@
    [(n) (new sub1% [rands (list n)])]
    [(n m) (+/o n 1 m)]))
 
-(define delay%
-  (class* object% (functionable<%> printable<%>)
-    (super-new)
-
-    (init-field c)
-
-    (define/public (custom-print p depth)
-      (display (list '@ c) p))
-    (define/public (custom-write p)
-      (write   (list '@ c) p))
-    (define/public (custom-display p) 
-      (display (list '@ c) p))
-
-    (unless (is-a? c functionable<%>)
-      (error 'delay% "given non-functionable<%> ~a" c))
-
-    (define/public (->rel v state)
-      (send c ->rel v state))
-
-    (define/public (->out state k bad)
-      (let ([ans (send c ->out state k bad)])
-        (cond
-         [(object? ans) (new this% [c ans])]
-         [else ans])))
-
-    (define/public (augment-stream stream)
-      (send c augment-stream stream))))
-
-(define (@ c) (new delay% [c c]))
-
 ;; (mapo rel ls ... out)
 (define map%
   (class constraint%
@@ -1402,9 +1366,6 @@
     (define/augment (augment-stream stream)
       (send (or partial (send this body . rands)) augment-stream stream))))
 
-(require (for-syntax racket/base) 
-         (for-syntax syntax/parse))
-
 (define-syntax (define-constraint stx)
   (syntax-parse stx
     [(define-constraint (name args ...) interp)
@@ -1413,3 +1374,4 @@
            (class constraint% (super-new)
              (define/public (body args ...) interp)))
          (new (partial-mixin name%) [rands (list args ...)]))]))
+

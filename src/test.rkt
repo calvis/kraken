@@ -1,7 +1,11 @@
 #lang racket
 
-(require (except-in rackunit fail) rackunit/text-ui) 
+(require (except-in rackunit fail) rackunit/text-ui)
+(require (for-syntax racket/base syntax/parse))
 (require "main.rkt")
+
+;; =============================================================================
+;; testing facilities
 
 (define finished (make-parameter '()))
 
@@ -16,9 +20,26 @@
                    (finished (cons 'name (finished)))
                    (printf "finished ~a\n" 'name)))))
 
-(define x (fresh (x) x))
-(define y (fresh (y) y))
-(define z (fresh (z) z))
+(define-simple-check (check-termination bool) bool)
+
+(define-syntax (check-termination-macro stx)
+  (syntax-parse stx
+    [(check-termination-macro num expr)
+     #`(with-check-info
+        (['call 'expr] ['ticks num])
+        #,(quasisyntax/loc stx
+            (check-termination 
+             (engine-run num (engine (lambda (y) expr))))))]))
+
+(define-syntax-rule (check-quick-termination expr)
+  (check-termination-macro 50 expr))
+
+;; =============================================================================
+;; tests
+
+(define x (var 'x))
+(define y (var 'y))
+(define z (var 'z))
 
 (define-dependency-test state-tests
   ()
@@ -148,10 +169,24 @@
      (0 1)
      (1 1))))
 
+(require racket/engine)
+
+(define-dependency-test shape-tests
+  ())
+
+(define-dependency-test ==>-tests
+  ())
+
 (define-dependency-test operator-tests
-  (associate-tests
-   conj-tests
-   disj-tests))
+  (associate-tests conj-tests disj-tests ==>-tests shape-tests)
+
+  (define-constraint (foo x)
+    (==> (shape x (cons (any) (any)))
+         (conj succeed (foo (cdr/o x)))))
+
+  ;; x is never a pair, so the conj should never be joined
+  ;; if succeed triggers joining, this infinite loops
+  (check-quick-termination (foo x)))
 
 (define-dependency-test map-tests
   (operator-tests)
@@ -184,9 +219,9 @@
                     (dom/a z (range-dom 1 2)))
               (conj (≡ y z)
                     (dom/a x (range-dom 2 3)))))
-   (run (conj (≡ z 2)
+   (run (conj (≡ x y)
               (≡ y z)
-              (≡ x y)))))
+              (≡ z 2)))))
 
 (define-dependency-test fd-tests
   (operator-tests dom-tests)
@@ -491,6 +526,8 @@
    (time (associate-tests))
    (time (conj-tests))
    (time (disj-tests))
+   (time (shape-tests))
+   (time (==>-tests))
    (time (operator-tests))
 
    (time (map-tests))
