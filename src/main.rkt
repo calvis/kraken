@@ -30,7 +30,7 @@
         (stream-interleave (stream-map stream-rest stream)))))]))
 
 (define ((update-constraints state k bad) o)
-  (if (is-a? o functionable%) (send o ->out state k bad) o))
+  (if (is-a? o functionable<%>) (send o ->out state k bad) o))
 
 (define-syntax-rule (shape-case x [t clause ...] ...)
   (disj (==> (shape x t) (conj clause ...)) ...))
@@ -157,11 +157,11 @@
             [(and (ormap (curryr is-a? delay%) rands^)
                   (not (is-a? this ==%)))
              (send state add (send this update-rands rands^))]
-            [(findf (curryr is-a? functionable%) rands^)
+            [(findf (curryr is-a? functionable<%>) rands^)
              (define-values (new-state new-rands)
                (for/fold ([state state] [rands '()]) ([r rands^])
                  (cond
-                  [(is-a? r functionable%)
+                  [(is-a? r functionable<%>)
                    (let ([out (var (gensym 'out))])
                      (values (send r ->rel out state)
                              (cons out rands)))]
@@ -185,7 +185,7 @@
              (send (send this update-rands rands^) satisfy state)])))))
 
     (define (force-delays stream)
-      (let ([rands (filter (curryr is-a? functionable%) rands)])
+      (let ([rands (filter (curryr is-a? functionable<%>) rands)])
         (for/fold ([stream stream]) ([r rands])
           (send r augment-stream stream))))
 
@@ -413,9 +413,9 @@
       (let ([x (walk x)] [v (walk v)])
         (cond
          [(eq? x v) this]
-         [(and (is-a? x functionable%) (not (object? v)))
+         [(and (is-a? x functionable<%>) (not (object? v)))
           (send x ->rel v this)]
-         [(and (is-a? v functionable%) (not (object? x)))
+         [(and (is-a? v functionable<%>) (not (object? x)))
           (send v ->rel x this)]
          [(var? x) 
           (send (new this% [s (cons (cons x v) s)] [c c] [a a])
@@ -593,34 +593,6 @@
 
 ;; =============================================================================
 ;; examples
-
-(define (atomic x) 
-  (new atomic% [rands (list x)]))
-
-(define atomic%
-  (class constraint%
-    (super-new)
-    (inherit-field rands)
-    (match-define (list x) rands)))
-
-(define (non-atomic x) 
-  (! (atomic x)))
-
-(define compound-constraint%
-  (class constraint%
-    (super-new)
-    (inherit-field rands)
-    (init-field [partial #f])))
-
-(define !=%
-  (class compound-constraint%
-    (super-new)
-    (inherit-field rands partial)
-
-    (match-define (list x y) rands)))
-
-(define (!= x y)
-  (new !=% [rands (list x y)]))
 
 (define (interval? x)
   (pair? x))
@@ -902,15 +874,13 @@
 
     (define/augment (satisfy state)
       (let ([x (send state walk x)])
-        (cond
-         [(not (not (memv-dom? x d)))]
-         [else 
-          (cond
-           [(send state get-attribute this% x)
-            => (lambda (attr^)
-                 (let ([i (intersection-dom attr^ d)])
-                   (or (equal? i attr^) this)))]
-           [else this])])))
+        (or (not (not (memv-dom? x d)))
+            (cond
+             [(send state get-attribute this% x)
+              => (lambda (attr^)
+                   (let ([i (intersection-dom attr^ d)])
+                     (or (equal? i attr^) this)))]
+             [else this]))))
 
     (define/public (merge attr^ state)
       (define new-d (intersection-dom d (send attr^ get-value)))
@@ -926,10 +896,10 @@
 (define (+/o . n*)
   (new +% [rands n*]))
 
-(define functionable% (interface () ->out ->rel))
+(define functionable<%> (interface () ->out ->rel))
 
 (define +%
-  (class* constraint% (functionable%)
+  (class* constraint% (functionable<%>)
     (super-new)
     (inherit-field [n* rands])
 
@@ -1066,7 +1036,7 @@
 
 (define ==>%
   (class* operator% (printable<%>)
-    (init-field test consequent)
+    (init-field test [consequent succeed])
     (super-new)
 
     (define/public (custom-print p depth)
@@ -1205,7 +1175,7 @@
    [else '()]))
 
 (define cdr%
-  (class* constraint% (functionable%)
+  (class* constraint% (functionable<%>)
     (super-new)
     (inherit-field rands)
 
@@ -1257,7 +1227,7 @@
   (new cdr% [rands rands]))
 
 (define car%
-  (class* constraint% (functionable%)
+  (class* constraint% (functionable<%>)
     (super-new)
     (inherit-field rands)
 
@@ -1310,7 +1280,7 @@
   (new car% [rands rands]))
 
 (define sub1%
-  (class* constraint% (functionable%)
+  (class* constraint% (functionable<%>)
     (super-new)
 
     (inherit-field rands)
@@ -1345,7 +1315,7 @@
    [(n m) (+/o n 1 m)]))
 
 (define delay%
-  (class* object% (functionable% printable<%>)
+  (class* object% (functionable<%> printable<%>)
     (super-new)
 
     (init-field c)
@@ -1357,8 +1327,8 @@
     (define/public (custom-display p) 
       (display (list '@ c) p))
 
-    (unless (is-a? c functionable%)
-      (error 'delay% "given non-functionable% ~a" c))
+    (unless (is-a? c functionable<%>)
+      (error 'delay% "given non-functionable<%> ~a" c))
 
     (define/public (->rel v state)
       (send c ->rel v state))
@@ -1410,3 +1380,38 @@
   (let ([rev-ls*o (reverse ls*o)])
     (new map% [rel rel] [ls* (reverse (cdr rev-ls*o))] [out (car rev-ls*o)])))
 
+(define (partial-mixin %)
+  (class % 
+    (super-new)
+    (init-field [partial #f])
+    (inherit-field rands)
+
+    (define/augment (join state)
+      (match (send (or partial (send this body . rands)) satisfy state)
+        [#f (new fail%)]
+        [#t state]
+        [c^ (cond
+             [(is-a? c^ join%) (send state join c^)]
+             [else (send state add-constraint
+                         (new this% [rands rands] [partial c^]))])]))
+    
+    (define/augment (satisfy state)
+      (match (send (or partial (send this body . rands)) satisfy state)
+        [#f #f]
+        [#t #t]
+        [c^ (new this% [rands rands] [partial c^])]))
+
+    (define/augment (augment-stream stream)
+      (send (or partial (send this body . rands)) augment-stream stream))))
+
+(require (for-syntax racket/base) 
+         (for-syntax syntax/parse))
+
+(define-syntax (define-constraint stx)
+  (syntax-parse stx
+    [(define-constraint (name args ...) interp)
+     #'(define (name args ...)
+         (define name% 
+           (class constraint% (super-new)
+             (define/public (body args ...) interp)))
+         (new (partial-mixin name%) [rands (list args ...)]))]))

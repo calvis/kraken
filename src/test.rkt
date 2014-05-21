@@ -39,29 +39,32 @@
    (list (new join% [s `((,x . 5))])))
   
   (check-equal?
+   (run (≡ x #f))
+   (list (new join% [s `((,x . #f))])))
+  
+  (check-equal?
+   (run (≡ x #f))
+   (run (≡ #f x)))
+  
+  (check-equal?
    (run (≡ 5 x))
-   (run (≡ x 5))
-   "associate int-var")
+   (run (≡ x 5)))
   
   (check-equal?
    (run (≡ 5 (cons 1 2)))
-   (run fail)
-   "associate int-list")
+   (run fail))
 
   (check-equal?
    (run (≡ (cons 1 2) 5))
-   (run fail)
-   "associate list-int")
+   (run fail))
 
   (check-equal?
    (run (≡ x (cons 1 2)))
-   (list (new join% [s `((,x . ,(cons 1 2)))]))
-   "associate var-list")
+   (list (new join% [s `((,x . ,(cons 1 2)))])))
 
   (check-equal?
    (run (≡ (cons 1 2) x))
-   (run (≡ x (cons 1 2)))
-   "associate list-var")
+   (run (≡ x (cons 1 2))))
 
   (check-equal?
    (run (≡ '() '()))
@@ -93,8 +96,7 @@
 
   (check-equal?
    (run (≡ (list 1 2) (list 1 2)))
-   (run (conj (≡ 1 1) (≡ 2 2)))
-   "≡ lists as conj ≡s")
+   (run (conj (≡ 1 1) (≡ 2 2))))
 
   (check-equal? (run (conj fail)) (run fail))
 
@@ -146,70 +148,6 @@
      (0 1)
      (1 1))))
 
-(define-dependency-test atomic-tests
-  (conj-tests ==>-tests associate-tests)
-
-  (check-equal? 
-   (conj (atomic x) (≡ x 5))
-   (≡ x 5)
-   "atomic ≡")
-  
-  (check-equal? 
-   (conj (atomic x) (==> (atomic x) (≡ x 5)))
-   (conj (atomic x) (≡ x 5))
-   "atomic ≡ ==>")
-  
-  (check-equal? 
-   (conj (==> (atomic x) (≡ x 5)) (atomic x))
-   (conj (≡ x 5) (atomic x))
-   "==> atomic ≡")
-  
-  (check-equal? 
-   (conj (==> (atomic x)
-           (≡ x 5))
-         (atomic y)
-         (≡ y x))
-   (conj (≡ x 5) (≡ y x))
-   "atomic ≡ chaining"))
-
-(define-dependency-test !=-tests
-  (associate-tests conj-tests disj-tests)
-
-  (check-equal?
-   (!= 5 6)
-   succeed
-   "!= int-int different")
-
-  (check-equal?
-   (!= 5 5)
-   fail
-   "!= int-int same")
-
-  (check-equal?
-   (!= x x)
-   fail
-   "!= var-var same")
-
-  (check-equal?
-   (!= (cons 1 2) (cons 1 2))
-   fail
-   "!= pair-pair same")
-
-  (check-equal?
-   (!= 5 (cons 1 2))
-   succeed
-   "!= int-pair")
-
-  (check-equal?
-   (!= (cons 1 2) 5)
-   succeed
-   "!= pair-int")
-
-  (check-equal?
-   (car (!= (cons 1 2) (cons 3 4)))
-   (car succeed)
-   "!= pair-pair different"))
-
 (define-dependency-test operator-tests
   (associate-tests
    conj-tests
@@ -241,15 +179,14 @@
                      (dom/a x (range-dom 4 5)))])
     (check-equal? (run state) (run (dom/a x (range-dom 4 5)))))
 
-  #;
   (check-equal?
    (run (conj (conj (≡ x y)
                     (dom/a z (range-dom 1 2)))
               (conj (≡ y z)
                     (dom/a x (range-dom 2 3)))))
-   (run (conj (≡ x y)
+   (run (conj (≡ z 2)
               (≡ y z)
-              (≡ z 2)))))
+              (≡ x y)))))
 
 (define-dependency-test fd-tests
   (operator-tests dom-tests)
@@ -401,68 +338,36 @@
   (operator-tests dots-tests)
 
   (define (symbol/a x)
-    (new (class unary-attribute%
-           (super-new)
-           (inherit-field rands)
-           
-           (define/augment (join state)
-             (let ([x (send state walk (car rands))])
-               (cond
-                [(symbol? x)
-                 state]
-                [(var? x)
-                 (send state set-attribute (new this% [rands (list x)]))]
-                [else fail])))
-           
-           (define/augride (satisfy state)
-             (let ([x (send state walk (car rands))])
-               (or (symbol? x) (and (var? x) (symbol/a x))))))
-         [rands (list x)]))
+    (define symbol%
+      (class unary-attribute%
+        (super-new)
+        (inherit-field rands)
+        
+        (define/augment (join state)
+          (let ([x (send state walk (car rands))])
+            (cond
+             [(symbol? x)
+              state]
+             [(var? x)
+              (send state set-attribute (new this% [rands (list x)]))]
+             [else fail])))
+        
+        (define/augride (satisfy state)
+          (let ([x (send state walk (car rands))])
+            (or (symbol? x) (and (var? x) (symbol/a x)))))))
+    (new symbol% [rands (list x)]))
 
   (check-equal? (run (symbol/a 'x)) (list empty-state))
   (check-equal? (run (symbol/a 5))  (list))
 
-  (define (lookup/o gamma x t)
-    (new (class* constraint% (printable<%>)
-           (super-new)
-
-           (init-field [partial #f])
-           (inherit-field rands)
-           (match-define (list gamma x t) rands)
-           
-           (define/override (custom-print p depth)
-             (display (list (object-name this%) rands partial) p))
-           (define/override (custom-write p)
-             (write   (list (object-name this%) rands partial) p))
-           (define/override (custom-display p)
-             (display (list (object-name this%) rands partial) p))
-           
-           (define/public (body gamma x t)
-             (let ([y (var 'y)] [s (var 's)])
-               (==> (shape gamma (cons (any) (any)))
-                    (disj
-                     (≡ (car/o gamma) `(,x . ,t))
-                     (conj (≡ (car/o gamma) `(,y . ,s))
-                           (lookup/o (cdr/o gamma) x t))))))
-
-           (define/augment (join state)
-             (match (send (or partial (body gamma x t)) satisfy state)
-               [#f (new fail%)]
-               [#t state]
-               [c^ (cond
-                    [(is-a? c^ join%) (send state join c^)]
-                    [else (send state add-constraint (new this% [rands rands] [partial c^]))])]))
-           
-           (define/augment (satisfy state)
-             (match (send (or partial (body gamma x t)) satisfy state)
-               [#f #f]
-               [#t #t]
-               [c^ (new this% [rands rands] [partial c^])]))
-
-           (define/augment (augment-stream stream)
-             (send (or partial (body gamma x t)) augment-stream stream)))
-         [rands (list gamma x t)]))
-
+  (define-constraint (lookup/o gamma x t)
+    (==> (shape gamma (cons (any) (any)))
+         (disj
+          (≡ (car/o gamma) `(,x . ,t))
+          (fresh (y s)
+            (conj (≡ (car/o gamma) `(,y . ,s))
+                  (lookup/o (cdr/o gamma) x t))))))
+  
   (check-equal?
    (run (≡ (car/o `((x . int))) (cons `x `int)))
    (list empty-state))
@@ -493,55 +398,22 @@
    (run (lookup/o `((x . bool)) `x `int))
    (run fail))
 
-  (define (⊢/o gamma expr type)
-    (new (class* constraint% (printable<%>)
-           (super-new)
-
-           (init-field [partial #f])
-           (inherit-field rands)
-           (match-define (list gamma expr type) rands)
-           
-           (define/override (custom-print p depth)
-             (display (list (object-name this%) rands partial) p))
-           (define/override (custom-write p)
-             (write   (list (object-name this%) rands partial) p))
-           (define/override (custom-display p)
-             (display (list (object-name this%) rands partial) p))
-           
-           (define/public (body gamma expr type)
-             (disj
-              (==> (shape expr `(num ,(any)))
-                   (≡ type `int))
-              (==> (shape expr `(var ,(any)))
-                   (lookup/o gamma (car/o (cdr/o expr)) type))
-              (==> (shape expr `(lambda (,(any)) ,(any)))
-                   (fresh (x body t1 t2)
-                     (conj (≡ expr `(lambda (,x) ,body))
-                           (≡ type `(-> ,t1 ,t2))
-                           (⊢/o `((,x . ,t1) . ,gamma) body t2))))
-              (==> (shape expr `(app ,(any) ,(any)))
-                   (fresh (fn arg t1)
-                     (conj (≡ expr `(app ,fn ,arg))
-                           (⊢/o gamma fn `(-> ,t1 ,type))
-                           (⊢/o gamma arg t1))))))
-           
-           (define/augment (join state)
-             (match (send (or partial (body gamma expr type)) satisfy state)
-               [#f (new fail%)]
-               [#t state]
-               [c^ (cond
-                    [(is-a? c^ join%) (send state join c^)]
-                    [else (send state add-constraint (new this% [rands rands] [partial c^]))])]))
-           
-           (define/augment (satisfy state)
-             (match (send (or partial (body gamma expr type)) satisfy state)
-               [#f #f]
-               [#t #t]
-               [c^ (new this% [rands rands] [partial c^])]))
-
-           (define/augment (augment-stream stream)
-             (send (or partial (body gamma expr type)) augment-stream stream)))
-         [rands (list gamma expr type)]))
+  (define-constraint (⊢/o gamma expr type)
+    (disj
+     (==> (shape expr `(num ,(any)))
+          (≡ type `int))
+     (==> (shape expr `(var ,(any)))
+          (lookup/o gamma (car/o (cdr/o expr)) type))
+     (==> (shape expr `(lambda (,(any)) ,(any)))
+          (fresh (x body t1 t2)
+            (conj (≡ expr `(lambda (,x) ,body))
+                  (≡ type `(-> ,t1 ,t2))
+                  (⊢/o `((,x . ,t1) . ,gamma) body t2))))
+     (==> (shape expr `(app ,(any) ,(any)))
+          (fresh (fn arg t1)
+            (conj (≡ expr `(app ,fn ,arg))
+                  (⊢/o gamma fn `(-> ,t1 ,type))
+                  (⊢/o gamma arg t1))))))
 
   (check-equal?
    (run (==> (shape `(num 5) `(var ,x)) succeed))
