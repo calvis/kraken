@@ -162,7 +162,7 @@
                (for/fold ([state state] [rands '()]) ([r rands^])
                  (cond
                   [(is-a? r functionable<%>)
-                   (let ([out (var (gensym 'out))])
+                   (fresh (out)
                      (values (send r ->rel out state)
                              (cons out rands)))]
                   [else (values state (cons r rands))])))
@@ -913,7 +913,7 @@
         (apply join/3 state n*)]
        [else
         (match-define (list n1 n2 rest ...) n*)
-        (let ([n^ (var (gensym 'n))])
+        (fresh (n^)
           (send (conj (+/o n1 n2 n^)
                       (apply +/o (cons n^ rest)))
                 join state))]))
@@ -1151,12 +1151,12 @@
                  (send state associate (length x) n)]
                 [(tree? x)
                  (match-define (tree nodes) x)
-                 (define n* (for/list ([node nodes]) (var (gensym'n))))
+                 (define n* (for/list ([node nodes]) (fresh (n) n)))
                  (let ([state (send (apply +/o (append n* (list n))) join state)])
                    (send (apply conj (for/list ([node nodes] [n n*]) (length/a node n)))
                          join state))]
                 [(number? n)
-                 (send state associate (for/list ([i n]) (var 'i)) x)]
+                 (send state associate (for/list ([i n]) (fresh (n) n)) x)]
                 [else (send state set-attribute (new this% [rands (list x n)]))])))]
        [else #f]))
 
@@ -1198,7 +1198,7 @@
       (let ([ls (send state walk ls)])
         (cond
          [(is-a? ls delay%)
-          (let ([lso (var 'lso)])
+          (fresh (lso)
             (let ([state (send ls ->rel lso state)])
               (and state (send (cdr/o lso v) join state))))]
          [else (send (cdr/o ls v) join state)])))
@@ -1209,7 +1209,9 @@
         (cond
          [(pair? ls) 
           (send state associate (cdr ls) out)]
-         [else (send state associate (cons (var 'a) out) ls)])))
+         [else 
+          (fresh (a)
+            (send state associate (cons a out) ls))])))
 
     (define/augment (augment-stream stream)
       (cond
@@ -1219,7 +1221,9 @@
                            (let ([ls (send state walk (car rands))])
                              (cond
                               [(pair? ls) state]
-                              [else (send state associate (cons (var 'a) (var 'd)) ls)]))))
+                              [else 
+                               (fresh (a d)
+                                 (send state associate (cons a d) ls))]))))
                     stream)]
        [else (error 'augment-stream "not sure why this would happen")]))))
 
@@ -1250,7 +1254,7 @@
       (let ([ls (send state walk ls)])
         (cond
          [(is-a? ls delay%)
-          (let ([lso (var 'lso)])
+          (fresh (lso)
             (let ([state (send ls ->rel lso state)])
               (and state (send (car/o lso v) join state))))]
          [else (send (car/o ls v) join state)])))
@@ -1262,7 +1266,9 @@
             [out (send state walk (cadr rands))])
         (cond
          [(pair? ls) (send state associate (car ls) out)]
-         [else (send state associate (cons out (var 'd)) ls)])))
+         [else 
+          (fresh (d)
+            (send state associate (cons out d) ls))])))
 
     (define/augment (augment-stream stream)
       (cond
@@ -1272,7 +1278,9 @@
                            (let ([ls (send state walk (car rands))])
                              (cond
                               [(pair? ls) state]
-                              [else (send state associate (cons (var 'a) (var 'd)) ls)]))))
+                              [else 
+                               (fresh (a d)
+                                 (send state associate (cons a d) ls))]))))
                     stream)]
        [else (error 'augment-stream "not sure why this would happen")]))))
 
