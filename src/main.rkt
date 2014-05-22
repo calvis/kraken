@@ -1,6 +1,6 @@
 #lang racket/base
 
-;; todo: struct/o
+;; todo: struct@
 (require racket/trace)
 
 (provide (all-defined-out)
@@ -404,7 +404,7 @@
 ;; check-scope : 
 ;;   [List-of EigenVar] [List-of CVar] [List-of [List-of CVar]] -> Boolean
 ;; returns #t if scope is correctly observed, and #f otherwise
-;;    examples: 
+;; examples: 
 ;;    ()  (x) ((x) (e) (y)) = #t
 ;;    (e) (x) ((x) (e) (y)) = #f
 ;;    (e) (y) ((x) (e) (y)) = #t
@@ -978,7 +978,7 @@
 (define (dom/a x d)
   (new dom% [rands (list x d)]))
 
-(define (+/o . n*)
+(define (+@ . n*)
   (new +% [rands n*]))
 
 (define functionable<%> (interface () ->out ->rel))
@@ -1000,8 +1000,8 @@
         (match-define (list n1 n2 rest ...) n*)
         (send
          (exists (n^)
-           (conj (+/o n1 n2 n^)
-                 (apply +/o (cons n^ rest))))
+           (conj (+@ n1 n2 n^)
+                 (apply +@ (cons n^ rest))))
          join state)]))
 
     (define (join/3 state u v w)
@@ -1025,14 +1025,14 @@
                   [new-v-dom (range-dom (- wmin umax) (- wmax umin))])
               (cond
                [(or (var? u) (var? v) (var? w))
-                (let* ([state            (send state add-constraint (+/o u v w))]
+                (let* ([state            (send state add-constraint (+@ u v w))]
                        [state (and state (send (dom/a u new-u-dom) join state))]
                        [state (and state (send (dom/a v new-v-dom) join state))]
                        [state (and state (send (dom/a w new-w-dom) join state))])
                   state)]
                [else state]))))))
 
-    ;; (+/o n*) = out
+    ;; (+@ n*) = out
     (define/public (->out state k bad)
       (let ([n* (send state walk n*)])
         (cond
@@ -1043,7 +1043,7 @@
 
     (define/public (->rel n^ state)
       (let ([n* (send state walk n*)])
-        (send (apply +/o (append n* (list n^))) join state)))
+        (send (apply +@ (append n* (list n^))) join state)))
 
     (define/public (relevant-association? pair)
       (ormap (lambda (v) (memq v (map car pair))) n*))
@@ -1103,7 +1103,7 @@
       (disj (== ls `())
             (exists (a d)
               (==> (shape ls (cons (any) (any)))
-                (list/a (cdr/o ls))))))
+                (list/a (cdr@ ls))))))
     
     (define/override (join state)
       (match (send (or partial (body ls)) satisfy state)
@@ -1201,7 +1201,7 @@
     (define/override (body ls)
       (disj (==> (shape ls `()))
             (==> (shape ls (cons (any) (any)))
-                 (conj (fn (car/o ls)) (dots/a fn (cdr/o ls))))))
+                 (conj (fn (car@ ls)) (dots/a fn (cdr@ ls))))))
 
     (define/override (join state)
       (match (send (or partial (body ls)) satisfy state)
@@ -1244,7 +1244,7 @@
                 [(tree? x)
                  (match-define (tree nodes) x)
                  (define n* (for/list ([node nodes]) (var 'n)))
-                 (let ([state (send (apply +/o (append n* (list n))) join state)])
+                 (let ([state (send (apply +@ (append n* (list n))) join state)])
                    (send (apply conj (for/list ([node nodes] [n n*])
                                        (length/a node n)))
                          join state))]
@@ -1289,7 +1289,7 @@
 
     (define/public (->rel v state)
       (let ([ls (send state walk ls)])
-        (send (cdr/o ls v) join state)))
+        (send (cdr@ ls v) join state)))
 
     (define/augment (join state)
       (let ([ls (send state walk ls)]
@@ -1315,7 +1315,7 @@
                     stream)]
        [else (error 'augment-stream "not sure why this would happen")]))))
 
-(define (cdr/o . rands)
+(define (cdr@ . rands)
   (new cdr% [rands rands]))
 
 (define car%
@@ -1340,7 +1340,7 @@
 
     (define/public (->rel v state)
       (let ([ls (send state walk ls)])
-        (send (car/o ls v) join state)))
+        (send (car@ ls v) join state)))
 
     (define/augment (join state)
       (unless (not (null? (cdr rands)))
@@ -1367,7 +1367,7 @@
                     stream)]
        [else (error 'augment-stream "not sure why this would happen")]))))
 
-(define (car/o . rands)
+(define (car@ . rands)
   (new car% [rands rands]))
 
 (define sub1%
@@ -1383,8 +1383,8 @@
          [(object? n)
           (exists (n^)
             (let ([state (send n ->rel n^ state)])
-              (and state (send (+/o v 1 n^) join state))))]
-         [else (send (+/o v 1 n) join state)])))
+              (and state (send (+@ v 1 n^) join state))))]
+         [else (send (+@ v 1 n) join state)])))
 
     (define/public (->out state k bad)
       (let ([n (send state walk n)])
@@ -1400,10 +1400,10 @@
          [(var? n) (new this% [rands (list n)])]
          [else (k bad)])))))
 
-(define sub1/o
+(define sub1@
   (case-lambda
    [(n) (new sub1% [rands (list n)])]
-   [(n m) (+/o n 1 m)]))
+   [(n m) (+@ n 1 m)]))
 
 ;; (mapo rel ls ... out)
 (define map%
@@ -1437,7 +1437,7 @@
           (error 'here "here")]
          [else (send state add-constraint (new this% [rel rel] [ls* ls*] [out out]))])))))
 
-(define (map/o rel . ls*o)
+(define (map@ rel . ls*o)
   (let ([rev-ls*o (reverse ls*o)])
     (new map% [rel rel] [ls* (reverse (cdr rev-ls*o))] [out (car rev-ls*o)])))
 

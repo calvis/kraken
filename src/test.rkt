@@ -185,7 +185,7 @@
 
   (define-constraint (foo x)
     (==> (shape x (cons (any) (any)))
-         (conj succeed (foo (cdr/o x)))))
+         (conj succeed (foo (cdr@ x)))))
 
   ;; x is never a pair, so the conj should never be joined
   ;; if succeed triggers joining, this infinite loops
@@ -195,7 +195,7 @@
   (operator-tests)
 
   (check-equal? 
-   (run (map/o ≡ (list x) (list y)))
+   (run (map@ ≡ (list x) (list y)))
    (run (≡ x y))))
 
 (define-dependency-test dom-tests
@@ -230,24 +230,24 @@
   (operator-tests dom-tests)
 
   (check-equal?
-   (run (+/o x 5 7))
+   (run (+@ x 5 7))
    (run (≡ x 2)))
 
   (check-equal?
    (run (conj (dom/a x (range-dom 1 10))
-              (+/o x 5 7)))
+              (+@ x 5 7)))
    (run (≡ x 2)))
 
   (check-equal?
-   (run (conj (+/o x 5 7)
+   (run (conj (+@ x 5 7)
               (dom/a x (range-dom 1 10))))
    (run (conj (dom/a x (range-dom 1 10))
-              (+/o x 5 7)))))
+              (+@ x 5 7)))))
 
 (define-dependency-test list-tests
   ()
   
-  (let ([answer (run (cdr/o x '()))])
+  (let ([answer (run (cdr@ x '()))])
     (check-false (null? answer)))
 
   (check-equal?
@@ -289,7 +289,7 @@
     (check-equal? (length (send (car answer) walk x)) 3 (~a (car answer))))
 
   (define n1 (var 'n1)) (define n2 (var 'n2))
-  (let ([state (send (conj (length/a x n1) (length/a y n2) (+/o n1 n2 1)) join (new join%))])
+  (let ([state (send (conj (length/a x n1) (length/a y n2) (+@ n1 n2 1)) join (new join%))])
     (check-not-false state)
     (let ([answer (send state narrow 3)])
       (check-false (null? answer))
@@ -398,109 +398,109 @@
   (check-equal? (run (symbol/a 'x)) (list empty-state))
   (check-equal? (run (symbol/a 5))  (list))
 
-  (define-constraint (lookup/o gamma x t)
+  (define-constraint (lookup@ gamma x t)
     (==> (shape gamma (cons (any) (any)))
          (disj
-          (≡ (car/o gamma) `(,x . ,t))
+          (≡ (car@ gamma) `(,x . ,t))
           (fresh (y s)
-            (conj (≡ (car/o gamma) `(,y . ,s))
-                  (lookup/o (cdr/o gamma) x t))))))
+            (conj (≡ (car@ gamma) `(,y . ,s))
+                  (lookup@ (cdr@ gamma) x t))))))
   
   (check-equal?
-   (run (≡ (car/o `((x . int))) (cons `x `int)))
+   (run (≡ (car@ `((x . int))) (cons `x `int)))
    (list empty-state))
 
   (check-equal?
    (run (==> (shape `((x . int)) (cons (any) (any)))
-             (≡ (car/o `((x . int))) (cons `x `int))))
+             (≡ (car@ `((x . int))) (cons `x `int))))
    (list empty-state))
 
   (check-equal?
    (run (==> (shape `((x . int)) (cons (any) (any)))
-             (disj (≡ `(x . int) `(x . int)) (lookup/o `() `x `int))))
+             (disj (≡ `(x . int) `(x . int)) (lookup@ `() `x `int))))
    (list empty-state))
   
   (check-equal?
-   (run (lookup/o `((x . int)) `x `int))
+   (run (lookup@ `((x . int)) `x `int))
    (list (new join%)))
 
   (check-equal?
-   (run (lookup/o `((x . int)) x `int))
+   (run (lookup@ `((x . int)) x `int))
    (run (≡ x 'x)))
 
   (check-equal?
-   (run (lookup/o `() x `int))
+   (run (lookup@ `() x `int))
    (run fail))
 
   (check-equal?
-   (run (lookup/o `((x . bool)) `x `int))
+   (run (lookup@ `((x . bool)) `x `int))
    (run fail))
 
-  (define-constraint (⊢/o gamma expr type)
+  (define-constraint (⊢@ gamma expr type)
     (case-shape expr
       [(num ,(any)) (≡ type `int)]
-      [(var ,(any)) (lookup/o gamma (car/o (cdr/o expr)) type)]
+      [(var ,(any)) (lookup@ gamma (car@ (cdr@ expr)) type)]
       [(lambda (,(any)) ,(any))
        (fresh (x body t1 t2)
          (conj (≡ expr `(lambda (,x) ,body))
                (≡ type `(-> ,t1 ,t2))
-               (⊢/o `((,x . ,t1) . ,gamma) body t2)))]
+               (⊢@ `((,x . ,t1) . ,gamma) body t2)))]
       [(app ,(any) ,(any))
        (fresh (fn arg t1)
          (conj (≡ expr `(app ,fn ,arg))
-               (⊢/o gamma fn `(-> ,t1 ,type))
-               (⊢/o gamma arg t1)))]))
+               (⊢@ gamma fn `(-> ,t1 ,type))
+               (⊢@ gamma arg t1)))]))
   
   (check-equal?
    (run (==> (shape `(num 5) `(var ,x)) succeed))
    (run fail))
 
   (check-equal?
-   (run (⊢/o `() `(var x) `int))
+   (run (⊢@ `() `(var x) `int))
    (run fail))
   
   (check-equal?
-   (run (⊢/o `((x . int)) `(var x) `int))
+   (run (⊢@ `((x . int)) `(var x) `int))
    (run succeed))
 
   (check-equal?
-   (run (⊢/o `((x . int)) `(var ,x) `int))
+   (run (⊢@ `((x . int)) `(var ,x) `int))
    (run (≡ x `x)))
 
   (check-equal?
-   (run (⊢/o `() `(num 5) `int))
+   (run (⊢@ `() `(num 5) `int))
    (run succeed))
 
   (check-true
-   (= (length (run (⊢/o `() `(lambda (x) (var x)) `(-> int int)))) 1))
+   (= (length (run (⊢@ `() `(lambda (x) (var x)) `(-> int int)))) 1))
 
   (check-equal?
    (length
     (run (==> (shape `(app (lambda (x) (var x)) (num 5)) `(app ,(any) ,(any)))
-              (conj (⊢/o `() `(lambda (x) (var x)) `(-> int int))
-                    (⊢/o `() `(num 5) `int)))))
+              (conj (⊢@ `() `(lambda (x) (var x)) `(-> int int))
+                    (⊢@ `() `(num 5) `int)))))
    1)
 
   (check-equal?
    (length
     (run (==> (shape `(app (lambda (x) (var x)) (num 5)) `(app ,(any) ,(any)))
               (fresh (t1)
-                (conj (⊢/o `() `(lambda (x) (var x)) `(-> ,t1 int))
-                      (⊢/o `() `(num 5) t1))))))
+                (conj (⊢@ `() `(lambda (x) (var x)) `(-> ,t1 int))
+                      (⊢@ `() `(num 5) t1))))))
    1)
 
   (check-equal?
    (length
     (run (fresh (body)
            (conj (== body `(var x))
-                 (⊢/o `() `(lambda (x) ,body) `(-> int int))))))
+                 (⊢@ `() `(lambda (x) ,body) `(-> int int))))))
    1)
 
   (check-equal?
    (length
     (run (fresh (fn)
            (conj (== fn `(lambda (x) (var x)))
-                 (⊢/o `() fn `(-> int int))))))
+                 (⊢@ `() fn `(-> int int))))))
    1)
 
   (check-equal?
@@ -514,11 +514,11 @@
                  (fresh (x body t1 t2)
                    (conj (≡ expr `(lambda (,x) ,body))
                          (≡ type `(-> ,t1 ,t2))
-                         (⊢/o `((,x . ,t1) . ,gamma) body t2))))))))
+                         (⊢@ `((,x . ,t1) . ,gamma) body t2))))))))
    1)
 
   (check-equal?
-   (length (run (⊢/o `() `(app (lambda (x) (var x)) (num 5)) `int)))
+   (length (run (⊢@ `() `(app (lambda (x) (var x)) (num 5)) `int)))
    1))
 
 (define-dependency-test eigen-tests
