@@ -407,18 +407,18 @@
                   (lookup@ (cdr@ gamma) x t))))))
   
   (check-equal?
-   (run (≡ (car@ `((x . int))) (cons `x `int)))
-   (list empty-state))
+   (length (run (≡ (car@ `((x . int))) (cons `x `int))))
+   1)
 
   (check-equal?
-   (run (==> (shape `((x . int)) (cons (any) (any)))
-             (≡ (car@ `((x . int))) (cons `x `int))))
-   (list empty-state))
+   (length (run (==> (shape `((x . int)) (cons (any) (any)))
+                     (≡ (car@ `((x . int))) (cons `x `int)))))
+   1)
 
   (check-equal?
-   (run (==> (shape `((x . int)) (cons (any) (any)))
-             (disj (≡ `(x . int) `(x . int)) (lookup@ `() `x `int))))
-   (list empty-state))
+   (length (run (==> (shape `((x . int)) (cons (any) (any)))
+                     (disj (≡ `(x . int) `(x . int)) (lookup@ `() `x `int)))))
+   1)
   
   (check-equal?
    (run (lookup@ `((x . int)) `x `int))

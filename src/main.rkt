@@ -143,23 +143,18 @@
     (define/pubment (join state)
       (call/cc
        (lambda (k)
-         (let ([rands^ (map (update-constraints state k (new fail% [trace this])) 
-                            rands)])
-           (cond
-            [(findf (curryr is-a? functionable<%>) rands^)
-             (define-values (new-state new-rands)
-               (for/fold ([state state] [rands '()]) ([r rands^])
-                 (cond
-                  [(is-a? r functionable<%>)
-                   (let ([out (var 'out)])
-                     (values (send r ->rel out state)
-                             (cons out rands)))]
-                  [else (values state (cons r rands))])))
-             (send (send this update-rands (reverse new-rands)) join new-state)]
-            [(map eq? rands rands^)
-             (inner state join state)]
-            [else 
-             (send (send this update-rands rands^) join state)])))))
+         (cond
+          [(findf (curryr is-a? functionable<%>) rands)
+           (define-values (new-state new-rands)
+             (for/fold ([state state] [rands '()]) ([r rands])
+               (cond
+                [(is-a? r functionable<%>)
+                 (let ([out (var 'out)])
+                   (values (send r ->rel out state)
+                           (cons out rands)))]
+                [else (values state (cons r rands))])))
+           (send (send this update-rands (reverse new-rands)) join new-state)]
+          [else (inner state join state)]))))
 
     (define/pubment (satisfy state)
       (call/cc
