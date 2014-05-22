@@ -1,6 +1,7 @@
 #lang racket/base
 
 ;; todo: struct/o
+(require racket/trace)
 
 (provide (all-defined-out)
          (all-from-out "variables.rkt"))
@@ -8,6 +9,10 @@
          (for-syntax syntax/parse))
 
 (require "variables.rkt")
+
+(struct -eigen cvar ())
+(define (eigen x) (-eigen "e" x))
+(define eigen? -eigen?)
 
 (require (rename-in racket/stream [stream-append stream-append-proc]))
 
@@ -112,7 +117,7 @@
   (class* object% (printable<%> equal<%>)
     (super-new)
 
-    (init-field [rator this%] [rands '()])
+    (init-field [rator this%] [rands '()] [scope '()])
 
     (define/public (get-rator) this%)
     (define/public (get-rands) rands)
@@ -133,7 +138,7 @@
                     rands (range 0 (length rands)))))
 
     (define/public (update-rands rands)
-      (new this% [rands rands]))
+      (new this% [rands rands] [scope scope]))
 
     (define/pubment (join state)
       (call/cc
@@ -146,7 +151,7 @@
                (for/fold ([state state] [rands '()]) ([r rands^])
                  (cond
                   [(is-a? r functionable<%>)
-                   (fresh (out)
+                   (let ([out (var 'out)])
                      (values (send r ->rel out state)
                              (cons out rands)))]
                   [else (values state (cons r rands))])))
@@ -165,6 +170,9 @@
              (inner #f satisfy state)]
             [else 
              (send (send this update-rands rands^) satisfy state)])))))
+
+    (define/public (add-scope ls)
+      (new this% [rands rands] [scope (cons ls scope)]))
 
     (define (force-delays stream)
       (let ([rands (filter (curryr is-a? functionable<%>) rands)])
@@ -206,11 +214,6 @@
   (class attribute% (super-new)))
 
 ;; -----------------------------------------------------------------------------
-;; not
-
-(define (! c) c)
-
-;; -----------------------------------------------------------------------------
 ;; associate
 
 (define (== x v)
@@ -221,11 +224,11 @@
 (define ==%
   (class constraint%
     (super-new)
-    (inherit-field rands)
+    (inherit-field rands scope)
     (match-define (list x v) rands)
 
     (define/augment (join state)
-      (send state associate x v))
+      (send state associate x v scope))
 
     ;; problem: state isn't always a satisfy state.
     (define/augment (satisfy state)
@@ -257,6 +260,10 @@
       (+ (* 1 (hash-code s))
          (* 10 (hash-code c))
          (* 100 (hash-code a))))
+
+    (define/public (add-scope ls)
+      (for/fold ([state (new this% [s s])]) ([thing (append c a)])
+        (send state add (send thing add-scope ls))))
 
     (define/public (walk u) (walk/internal u s))
 
@@ -394,34 +401,93 @@
       (let ([v (walk v)])
         (walk/internal v (reify-s v '()))))))
 
+;; check-scope : 
+;;   [List-of EigenVar] [List-of CVar] [List-of [List-of CVar]] -> Boolean
+;; returns #t if scope is correctly observed, and #f otherwise
+;;    examples: 
+;;    ()  (x) ((x) (e) (y)) = #t
+;;    (e) (x) ((x) (e) (y)) = #f
+;;    (e) (y) ((x) (e) (y)) = #t
+(define (check-scope? e* x* scope)
+  (or (null? e*)
+      (null? scope)
+      (and (not (ormap (lambda (x) (memq x x*)) (car scope)))
+           (check-scope?
+            (for/fold ([e* e*]) ([e (car scope)]) (remq e e*))
+            (for/fold ([x* x*]) ([x (car scope)]) (remq x x*))
+            (cdr scope)))))
+
+(require (except-in rackunit fail))
+(let ([e (eigen 'e)] [x (var 'x)] [y (var 'y)])
+  (let ([scope (list (list x) (list e) (list y))])
+    (check-true  (check-scope? (list)   (list x) scope))
+    (check-false (check-scope? (list e) (list x) scope))
+    (check-true  (check-scope? (list e) (list y) scope))))
+
+(require racket/set)
+;; [List-of CVar] Subsitution -> [List-of CVar]
+(define (related-to x* s)
+  ;; [Set-of CVar]
+  ;; variables we want to find the related variables to
+  (define X (list->seteq x*))
+
+  ;; [List-of [Set-of CVar]]
+  ;; sets of all related variables based on unifications in s
+  (define related (map (compose list->seteq (lambda (x) (filter* cvar? x))) s))
+
+  ;; [Set-of Variable] [List-of [Set-of Variable] -> [Set-of Variable]
+  ;; computes all variables that are related to variables in X
+  (define (loop X related)
+    (cond
+     [(null? related) X]
+     [else 
+      (define-values (r not-r)
+        (partition (lambda (S) (not (set-empty? (set-intersect X S)))) related))
+      (cond
+       [(null? r) X]
+       [else (loop (apply set-union X r) not-r)])]))
+
+  ;; returns the total set of related variables at the end
+  (set->list (loop X related)))
+
 (define join%
   (class state%
     (super-new)
     (inherit walk)
     (inherit-field s c a)
 
-    (define/public (associate x v)
+    (define/public (associate x v [scope '()])
       (let ([x (walk x)] [v (walk v)])
-        (cond
-         [(eq? x v) this]
-         [(and (is-a? x functionable<%>) (not (object? v)))
-          (send x ->rel v this)]
-         [(and (is-a? v functionable<%>) (not (object? x)))
-          (send v ->rel x this)]
-         [(var? x) 
-          (send (new this% [s (cons (cons x v) s)] [c c] [a a])
-                update (cons x v))]
-         [(var? v)
-          (send (new this% [s (cons (cons v x) s)] [c c] [a a])
-                update (cons v x))]
-         [(and (pair? x) (pair? v))
-          (send (associate (car x) (car v)) associate (cdr x) (cdr v))]
-         [(tree? x)
-          (tree-associate x v this)]
-         [(tree? v)
-          (tree-associate v x this)]
-         [(equal? x v) this]
-         [else (new fail% [trace this])])))
+        (let ([state (unify x v)])
+          ;; x is a var or an eigen
+          ;; v could have vars and eigens in it
+          (define-values (e* x*)
+            (partition eigen? (related-to (filter* cvar? (cons x v)) s)))
+          (cond
+           [(check-scope? e* x* scope) state]
+           [else (new fail%)]))))
+
+    (define/public (unify x v)
+      (cond
+       [(eq? x v) this]
+       [(and (is-a? x functionable<%>) (not (object? v)))
+        (send x ->rel v this)]
+       [(and (is-a? v functionable<%>) (not (object? x)))
+        (send v ->rel x this)]
+       [(var? x) 
+        (send (new this% [s (cons (cons x v) s)] [c c] [a a])
+              update (cons x v))]
+       [(var? v)
+        (send (new this% [s (cons (cons v x) s)] [c c] [a a])
+              update (cons v x))]
+       [(and (pair? x) (pair? v))
+        (send (unify (car x) (car v)) unify (cdr x) (cdr v))]
+       [(tree? x)
+        (tree-associate x v this)]
+       [(tree? v)
+        (tree-associate v x this)]
+       [(equal? x v) this]
+       [else (new fail% [trace this])]))
 
     (define/public (augment-stream stream)
       (stream-filter
@@ -490,6 +556,7 @@
     (define/override (satisfy state) #f)
     (define/override (narrow [n #f]) '())
     (define/public (associate x v) this)
+    (define/public (unify x v) this)
     (define/override (set-attribute attr) this)
     (define/override (add x) this)
     (define/override (add-constraint x) this)))
@@ -507,6 +574,33 @@
    [else fail]))
 
 (define succeed (new join%))
+
+;; =============================================================================
+;; existentials
+
+(provide exists fresh)
+
+(define-syntax-rule (exists (x ...) bodys ... body)
+  (let ([x (var (gensym 'x))] ...)
+    (unless (void? bodys)
+      (error 'exists "not void\n expression: ~a" 'bodys))
+    ... 
+    (send body add-scope (list x ...))))
+
+(define-syntax-rule (fresh (x ...) body ...)
+  (exists (x ...) body ...))
+
+;; =============================================================================
+;; universals
+
+(provide forall)
+
+(define-syntax-rule (forall (x ...) bodys ... body)
+  (let ([x (eigen (gensym 'x))] ...) 
+    (unless (void? bodys)
+      (error 'forall "intermediate expression was not void\n ~a" 'bodys))
+    ... 
+    (send body add-scope (list x ...))))
 
 ;; =============================================================================
 ;; operators
@@ -904,10 +998,11 @@
         (apply join/3 state n*)]
        [else
         (match-define (list n1 n2 rest ...) n*)
-        (fresh (n^)
-          (send (conj (+/o n1 n2 n^)
-                      (apply +/o (cons n^ rest)))
-                join state))]))
+        (send
+         (exists (n^)
+           (conj (+/o n1 n2 n^)
+                 (apply +/o (cons n^ rest))))
+         join state)]))
 
     (define (join/3 state u v w)
       (let ([u (send state walk u)]
@@ -1006,7 +1101,7 @@
 
     (define/public (body ls)
       (disj (== ls `())
-            (fresh (a d)
+            (exists (a d)
               (==> (shape ls (cons (any) (any)))
                 (list/a (cdr/o ls))))))
     
@@ -1028,7 +1123,7 @@
 (define ==>%
   (class* operator% (printable<%>)
     (super-new)
-    (init-field test consequent)
+    (init-field test consequent [scope '()])
 
     (define/public (custom-print p depth)
       (display (list (object-name this%) test consequent) p))
@@ -1050,7 +1145,10 @@
         [test^ (==> test^ consequent)]))
 
     (define/public (augment-stream stream)
-      (error '==>% "trying to augment: ~a\n" this))))
+      (error '==>% "trying to augment: ~a\n" this))
+
+    (define/public (add-scope ls)
+      (new this% [test test] [consequent consequent] [scope (cons ls scope)]))))
 
 (define (==> t [c succeed]) 
   (new ==>% [test t] [consequent c]))
@@ -1145,12 +1243,13 @@
                  (send state associate (length x) n)]
                 [(tree? x)
                  (match-define (tree nodes) x)
-                 (define n* (for/list ([node nodes]) (fresh (n) n)))
+                 (define n* (for/list ([node nodes]) (var 'n)))
                  (let ([state (send (apply +/o (append n* (list n))) join state)])
-                   (send (apply conj (for/list ([node nodes] [n n*]) (length/a node n)))
+                   (send (apply conj (for/list ([node nodes] [n n*])
+                                       (length/a node n)))
                          join state))]
                 [(number? n)
-                 (send state associate (for/list ([i n]) (fresh (n) n)) x)]
+                 (send state associate (for/list ([i n]) (var 'n)) x)]
                 [else (send state set-attribute (new this% [rands (list x n)]))])))]
        [else #f]))
 
@@ -1199,7 +1298,7 @@
          [(pair? ls) 
           (send state associate (cdr ls) out)]
          [else 
-          (fresh (a)
+          (exists (a)
             (send state associate (cons a out) ls))])))
 
     (define/augment (augment-stream stream)
@@ -1211,7 +1310,7 @@
                              (cond
                               [(pair? ls) state]
                               [else 
-                               (fresh (a d)
+                               (exists (a d)
                                  (send state associate (cons a d) ls))]))))
                     stream)]
        [else (error 'augment-stream "not sure why this would happen")]))))
@@ -1251,7 +1350,7 @@
         (cond
          [(pair? ls) (send state associate (car ls) out)]
          [else 
-          (fresh (d)
+          (exists (d)
             (send state associate (cons out d) ls))])))
 
     (define/augment (augment-stream stream)
@@ -1263,7 +1362,7 @@
                              (cond
                               [(pair? ls) state]
                               [else 
-                               (fresh (a d)
+                               (exists (a d)
                                  (send state associate (cons a d) ls))]))))
                     stream)]
        [else (error 'augment-stream "not sure why this would happen")]))))
@@ -1282,7 +1381,7 @@
       (let ([n (send state walk n)])
         (cond
          [(object? n)
-          (fresh (n^)
+          (exists (n^)
             (let ([state (send n ->rel n^ state)])
               (and state (send (+/o v 1 n^) join state))))]
          [else (send (+/o v 1 n) join state)])))
@@ -1324,7 +1423,7 @@
                         (new this% [rel rel] [ls* (map cdr ls*)] [out (cdr out)]))
                   join state)]
            [else
-            (fresh (o d)
+            (exists (o d)
               (send (conj (== (cons o d) out)
                           (apply rel (append (map car ls*) (o)))
                           (new this% [rel rel] [ls* (map cdr ls*)] [out d]))
@@ -1375,3 +1474,8 @@
              (define/public (body args ...) interp)))
          (new (partial-mixin name%) [rands (list args ...)]))]))
 
+(define (filter* f t)
+  (cond
+   [(f t) (list t)]
+   [(pair? t) (append (filter* f (car t)) (filter* f (cdr t)))]
+   [else (list)]))

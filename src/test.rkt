@@ -4,6 +4,9 @@
 (require (for-syntax racket/base syntax/parse))
 (require "main.rkt")
 
+(define (bar)
+  (printf "====================================================\n"))
+
 ;; =============================================================================
 ;; testing facilities
 
@@ -519,7 +522,81 @@
    1))
 
 (define-dependency-test eigen-tests
-  ())
+  ()
+
+  (check-equal? 
+   (run (exists (x) (forall (e) (≡ e x))))
+   (run fail))
+
+  (check-equal?
+   (length (run (forall (e) (exists (x) (≡ e x)))))
+   1)
+
+  (check-equal?
+   (length (run (conj (forall (e1) (exists (x1) (≡ e1 x1)))
+                      (forall (e2) (exists (x2) (≡ e2 x2))))))
+   1)
+
+  ;; scope: ((x) (e) (y))
+  (check-equal?
+   (run (exists (x) 
+          (forall (e) 
+            (exists (y) 
+              (conj (≡ e y) (≡ x y))))))
+   (run fail))
+
+  (check-equal?
+   (run (forall (e) (≡ e 5)))
+   (run fail))
+
+  (check-equal?
+   (length (run (forall (e) (exists (x) (≡ (list e) x)))))
+   1)
+
+  (check-equal?
+   (run (forall (e) (exists (x) (≡ (list x) e))))
+   (run fail))
+
+  (check-equal?
+   (run (exists (x)
+          (forall (e) 
+            (exists (y)
+              (conj (≡ (list e) y)
+                    (≡ x y))))))
+   (run fail))
+
+  (check-equal?
+   (run (exists (x)
+          (forall (e)
+            (exists (y)
+              (conj (≡ (list y) x)
+                    (≡ y e))))))
+   (run fail))
+
+  (check-equal?
+   (run (exists (x)
+          (forall (e)
+            (exists (y)
+              (conj (≡ y e)
+                    (≡ (list y) x))))))
+   (run (exists (x)
+          (forall (e)
+            (exists (y)
+              (conj (≡ (list y) x)
+                    (≡ y e)))))))
+
+  (check-equal?
+   (run (forall (e1 e2)
+          (exists (x y)
+            (conj (≡ x e1) (≡ y e2) (≡ x y)))))
+   (run fail))
+
+  (check-equal?
+   (run (exists (x) 
+          (forall (e) 
+            (exists (y) 
+              (≡ (cons e x) (cons x x))))))
+   (run fail)))
 
 (define builtin-test-suite
   (test-suite 

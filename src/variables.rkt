@@ -1,11 +1,13 @@
 #lang racket/base
 
+(require racket/class)
+
 ;; cvars, vars, fresh, placeholders
 
 ;; =============================================================================
 ;; cvars
 
-(provide cvar? reify-n)
+(provide (struct-out cvar) reify-n)
 
 ;; normal miniKanren vars are actually an instance of a more general
 ;; "constrained var", or cvar for short.
@@ -33,27 +35,4 @@
 (provide any any?)
 
 (struct any () #:transparent)
-
-;; =============================================================================
-;; existentials
-
-(provide fresh exists)
-
-(define-syntax-rule (fresh (x ...) body ...)
-  (let ([x (var (gensym 'x))] ...) body ...))
-
-(define-syntax-rule (exists (x ...) body ...)
-  (fresh (x ...) body ...))
-
-;; =============================================================================
-;; universals
-
-(provide forall)
-
-(struct -eigen cvar ())
-(define (eigen x) (-eigen "e" x))
-(define eigen? -eigen?)
-
-(define-syntax-rule (forall (x ...) body ...)
-  (let ([x (eigen (gensym 'x))] ...) body ...))
 
