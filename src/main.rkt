@@ -239,76 +239,75 @@
   (class* object% (equal<%> printable<%>)
     (super-new)
 
-    (init-field [s '()] [c '()] [a '()])
+    (init-field [subst '()] [store '()])
 
-    (unless (andmap (lambda (c) (not (is-a? c join%))) c)
-      (error 'state% "invalid stuffs:\n ~a\n ~a" this c))
+    (when (ormap (lambda (thing) (is-a? thing state%)) store)
+      (error 'state% "found state as subterm:\n ~a\n ~a" this store))
 
     (define/public (equal-to? obj recur?)
-      (and (recur? s (get-field s obj))
-           (recur? c (get-field c obj))
-           (recur? a (get-field a obj))))
+      (and (recur? subst (get-field subst obj))
+           (recur? store (get-field store obj))))
 
     (define/public (equal-hash-code-of hash-code)
-      (+ 1 (hash-code s) (hash-code c) (hash-code a)))
+      (+ 1 (hash-code subst) (hash-code store)))
     (define/public (equal-secondary-hash-code-of hash-code)
-      (+ (* 1 (hash-code s))
-         (* 10 (hash-code c))
-         (* 100 (hash-code a))))
+      (+ (hash-code subst) (* 10 (hash-code store))))
 
     (define/public (add-scope ls)
-      (for/fold ([state (new this% [s s])]) ([thing (append c a)])
+      (for/fold
+        ([state (new this% [subst subst])])
+        ([thing store])
         (send state add (send thing add-scope ls))))
 
-    (define/public (walk u) (walk/internal u s))
+    (define/public (walk u) (walk/internal u subst))
 
+    (define sexp-me
+      (list (object-name this%) 
+            (map (lambda (p) (list (car p) (walk (cdr p)))) subst)
+            store))
+    
     (define/public (custom-print p depth)
-      (display (list (object-name this%)
-                     (map (lambda (p) (list (car p) (walk (cdr p)))) s) c a) p))
+      (display sexp-me p))
     (define/public (custom-write p)
-      (write   (list (object-name this%)
-                     (map (lambda (p) (list (car p) (walk (cdr p)))) s) c a) p))
+      (write sexp-me p))
     (define/public (custom-display p) 
-      (display (list (object-name this%)
-                     (map (lambda (p) (list (car p) (walk (cdr p)))) s) c a) p))
+      (display sexp-me p))
 
-    (define/public (get-attribute x% x)
+    (define/public (get-stored x% x)
       (cond
-       [(findf (lambda (a) (send a same-as? x% x)) a)
+       [(findf (lambda (a) (send a same-as? x% x)) store)
         => (lambda (a) (send a get-value))]
        [else #f]))
 
-    (define/public (has-attribute x% x)
-      (findf (lambda (a) (send a same-as? x% x)) a))
+    (define/public (has-stored x% x)
+      (findf (lambda (a) (send a same-as? x% x)) store))
 
-    (define/public (set-attribute attr)
+    (define/public (set-stored attr)
       (define x% (send attr get-rator))
       (define x  (car (send attr get-rands)))
       (cond
-       [(findf (lambda (a) (send a same-as? x% x)) a)
+       [(findf (lambda (a) (send a same-as? x% x)) store)
         => (lambda (attr^) 
-             (send attr merge attr^ (new this% [s s] [c c] [a (remq attr^ a)])))]
-       [else (new this% [s s] [c c] [a (cons attr a)])]))
+             (send attr merge attr^ (new this%
+                                         [subst subst] 
+                                         [store (remq attr^ store)])))]
+       [else (new this% [subst subst] [store (cons attr store)])]))
 
-    (define/public (join-s s)
-      (for/fold ([state this]) ([p s])
+    (define/public (join-subst subst)
+      (for/fold ([state this]) ([p subst])
         (send state associate (car p) (cdr p))))
 
-    (define/public (join-a a)
-      (for/fold ([state this]) ([attribute a])
-        (send attribute join state)))
-
-    (define/public (join-c c)
-      (for/fold ([state this]) ([constraint c])
-        (send constraint join state)))
+    (define/public (join-store store)
+      (for/fold ([state this]) ([thing store])
+        (send thing join state)))
     
     ;; Substitution -> (False U True U Substitution)
     ;; does this satisfy all the bindings in s
-    (define/public (satisfy-s s)
-      (for/fold ([s '()]) ([p s])
-        #:break (not s)
+    (define/public (satisfy-subst subst)
+      (for/fold ([subst '()]) ([p subst])
+        #:break (not subst)
         (cond 
-         [(satisfy-p (car p) (cdr p)) => (curryr append s)]
+         [(satisfy-p (car p) (cdr p)) => (curryr append subst)]
          [else #f])))
 
     ;; Association -> [List-of Association]
@@ -325,59 +324,37 @@
          [else #f])))
 
     ;; [List-of Attribute] -> [Maybe [List-of Attribute]]
-    (define/public (satisfy-a a)
-      (for/fold ([a '()]) ([attribute a])
-        #:break (not a)
-        (match (send attribute satisfy this)
-          [#t a] [#f #f] [a^ (cons a^ a)])))
+    (define/public (satisfy-store store)
+      (for/fold ([store '()]) ([thing store])
+        #:break (not store)
+        (match (send thing satisfy this)
+          [#t store] [#f #f] [thing^ (cons thing^ store)])))
 
-    ;; [List-of Constraint] -> [Maybe [List-of Constraint]]
-    (define/public (satisfy-c c)
-      (for/fold ([c '()]) ([constraint c])
-        #:break (not c)
-        (match (send constraint satisfy this)
-          [#t c] [#f #f] [c^ (cons c^ c)])))
-    
     (define/public (add x)
       (cond
-       [(is-a? x constraint%)
-        (add-constraint x)]
+       [(is-a? x base%)
+        (set-stored x)]
        [(is-a? x attribute%)
-        (set-attribute x)]
+        (set-stored x)]
        [(is-a? x operator%)
-        (add-constraint x)]
-       [(and (is-a? x join%)
-             (is-a? this pre-join%))
-        (for/fold ([state this]) ([thing (append (get-field c x)
-                                                 (get-field a x))])
-          (send state add thing))]
+        (set-stored x)]
        [(is-a? x state%)
         (join x)]
        [else (error 'add "cannot add ~a to ~a" x this)]))
 
-    (define/public (add-constraint c^)
-      (new this% [s s] [c (cons c^ c)] [a a]))
-
     (define/public (join state)
-      (cond
-       [(and (is-a? state pre-join%))
-        (join (send state join (new join%)))]
-       [else (send+ state (join-s s) (join-c a) (join-c c))]))
+      (send+ state (join-subst subst) (join-store store)))
 
     ;; State -> (False U True U State)
     (define/public (satisfy state)
       (cond
-       [(send state satisfy-s s)
-        => (lambda (s)
+       [(send state satisfy-subst subst)
+        => (lambda (subst)
              (cond
-              [(send state satisfy-a a)
-               => (lambda (a)
-                    (cond
-                     [(send state satisfy-c c)
-                      => (lambda (c)
-                           (or (andmap null? (list s c a))
-                               (new this% [s s] [c c] [a a])))]
-                     [else #f]))]
+              [(send state satisfy-store store)
+               => (lambda (store)
+                    (or (and (null? subst) (null? store))
+                        (new this% [subst subst] [store store])))]
               [else #f]))]
        [else #f]))
 
@@ -394,7 +371,43 @@
 
     (define/public (reify v)
       (let ([v (walk v)])
-        (walk/internal v (reify-s v '()))))))
+        (walk/internal v (reify-s v '()))))
+
+    (define/public (associate x v [scope '()])
+      (let ([x (walk x)] [v (walk v)])
+        (let ([state (unify x v)])
+          ;; x is a var or an eigen
+          ;; v could have vars and eigens in it
+          (define-values (e* x*)
+            (partition eigen? (related-to (filter* cvar? (cons x v)) subst)))
+          (cond
+           [(check-scope? e* x* scope) state]
+           [else (new fail%)]))))
+
+    (define/public (unify x v)
+      (cond
+       [(eq? x v) this]
+       [(and (is-a? x functionable<%>) (not (object? v)))
+        (send x ->rel v this)]
+       [(and (is-a? v functionable<%>) (not (object? x)))
+        (send v ->rel x this)]
+       [(var? x) 
+        (send (new this% [subst (cons (cons x v) subst)] [store store])
+              update (cons x v))]
+       [(var? v)
+        (send (new this% [subst (cons (cons v x) subst)] [store store])
+              update (cons v x))]
+       [(and (pair? x) (pair? v))
+        (send (unify (car x) (car v)) unify (cdr x) (cdr v))]
+       [(tree? x)
+        (tree-associate x v this)]
+       [(tree? v)
+        (tree-associate v x this)]
+       [(equal? x v) this]
+       [else (new fail% [trace this])]))
+
+    (define/public (update pair)
+      (send (new this% [subst subst]) join-store store))))
 
 ;; check-scope : 
 ;;   [List-of EigenVar] [List-of CVar] [List-of [List-of CVar]] -> Boolean
@@ -449,91 +462,22 @@
   (class state%
     (super-new)
     (inherit walk)
-    (inherit-field s c a)
-
-    (define/public (associate x v [scope '()])
-      (let ([x (walk x)] [v (walk v)])
-        (let ([state (unify x v)])
-          ;; x is a var or an eigen
-          ;; v could have vars and eigens in it
-          (define-values (e* x*)
-            (partition eigen? (related-to (filter* cvar? (cons x v)) s)))
-          (cond
-           [(check-scope? e* x* scope) state]
-           [else (new fail%)]))))
-
-    (define/public (unify x v)
-      (cond
-       [(eq? x v) this]
-       [(and (is-a? x functionable<%>) (not (object? v)))
-        (send x ->rel v this)]
-       [(and (is-a? v functionable<%>) (not (object? x)))
-        (send v ->rel x this)]
-       [(var? x) 
-        (send (new this% [s (cons (cons x v) s)] [c c] [a a])
-              update (cons x v))]
-       [(var? v)
-        (send (new this% [s (cons (cons v x) s)] [c c] [a a])
-              update (cons v x))]
-       [(and (pair? x) (pair? v))
-        (send (unify (car x) (car v)) unify (cdr x) (cdr v))]
-       [(tree? x)
-        (tree-associate x v this)]
-       [(tree? v)
-        (tree-associate v x this)]
-       [(equal? x v) this]
-       [else (new fail% [trace this])]))
+    (inherit-field subst store)
 
     (define/public (augment-stream stream)
       (stream-filter
        (compose not (curryr is-a? fail%))
-       (let ([stream (stream-map (lambda (state) (send state join-s s)) stream)])
-         (for/fold ([stream stream]) ([thing (append c a)])
-           (send thing augment-stream stream)))))
-
-    (define/public (update pair)
-      (send (send (new this% [s s]) join-a a) join-c c))))
-
-(define pre-join%
-  (class join% 
-    (super-new)
-    (inherit-field s c a)
-
-    (define/override (join-c c^)
-      (unless (or (null? c) (null? (cdr c)))
-        (error 'join-c "prejoin ~a can't join with ~a" this c^))
-      (send (new join% [s s] [c c] [a a]) join-c c^))
-
-    (define/override (join-a a^)
-      (unless (or (null? a) (null? (cdr a)))
-        (error 'join-a "prejoin ~a can't join with ~a" this a^))
-      (send (new join% [s s] [c c] [a a^]) join-a a^))))
+       (let ([stream (stream-map (lambda (state) (send state join-subst subst))
+                                 stream)])
+         (for/fold ([stream stream]) ([thing store])
+           (send thing augment-stream stream)))))))
 
 (define satisfy%
   (class state%
     (super-new)
-    (inherit walk)
-    (inherit-field s c a)
-
-    (define/public (associate x v)
-      (let ([x (walk x)] [v (walk v)])
-        (cond
-         [(eq? x v) #t]
-         [(var? x) 
-          (new this% [s (cons (cons x v) s)] [c c] [a a])]
-         [(var? v)
-          (new this% [s (cons (cons v x) s)] [c c] [a a])]
-         [(and (pair? x) (pair? v))
-          (match (associate (car x) (car v))
-            [#t (associate (cdr x) (cdr v))]
-            [#f #f]
-            [state^ (match (send state^ associate (cdr x) (cdr v))
-                      [#t state^] [#f #f] [state^^ state^^])])]
-         [(equal? x v) #t]
-         [else #f])))
-
+    (inherit-field subst store)
     (define/public (augment-stream stream)
-      (send (new join% [s s] [c c] [a a]) augment-stream stream))))
+      (send (new join% [subst subst] [store store]) augment-stream stream))))
 
 (define fail%
   (class* state% (printable<%>)
@@ -550,11 +494,10 @@
     (define/override (join state) this)
     (define/override (satisfy state) #f)
     (define/override (narrow [n #f]) '())
-    (define/public (associate x v) this)
-    (define/public (unify x v) this)
-    (define/override (set-attribute attr) this)
-    (define/override (add x) this)
-    (define/override (add-constraint x) this)))
+    (define/override (associate x v) this)
+    (define/override (unify x v) this)
+    (define/override (set-stored attr) this)
+    (define/override (add x) this)))
 
 (define fail (new fail%))
 
@@ -608,6 +551,7 @@
 ;; conjunction
 
 (define (conj . clauses)
+  clauses #;
   (for/fold ([state (new pre-join%)]) ([base (reverse clauses)])
     (send state add base)))
 
@@ -950,13 +894,13 @@
          [(singleton-dom? d)
           (send state associate x (singleton-element-dom d))]
          [else 
-          (send state set-attribute (new dom% [rands (list x d)]))])))
+          (send state set-stored (new dom% [rands (list x d)]))])))
 
     (define/augment (satisfy state)
       (let ([x (send state walk x)])
         (or (not (not (memv-dom? x d)))
             (cond
-             [(send state get-attribute this% x)
+             [(send state get-stored this% x)
               => (lambda (attr^)
                    (let ([i (intersection-dom attr^ d)])
                      (or (equal? i attr^) this)))]
@@ -1003,13 +947,13 @@
       (let ([u (send state walk u)]
             [v (send state walk v)]
             [w (send state walk w)])
-        (let ([du (or (send state get-attribute dom% u) 
+        (let ([du (or (send state get-stored dom% u) 
                       (and (value-dom? u) (range-dom u u))
                       (range-dom 0 100))]
-              [dv (or (send state get-attribute dom% v) 
+              [dv (or (send state get-stored dom% v) 
                       (and (value-dom? v) (range-dom v v))
                       (range-dom 0 100))]
-              [dw (or (send state get-attribute dom% w) 
+              [dw (or (send state get-stored dom% w) 
                       (and (value-dom? w) (range-dom w w))
                       (range-dom 0 100))])
           (let ([wmin (min-dom dw)] [wmax (max-dom dw)]
@@ -1038,13 +982,7 @@
 
     (define/public (->rel n^ state)
       (let ([n* (send state walk n*)])
-        (send (apply +@ (append n* (list n^))) join state)))
-
-    (define/public (relevant-association? pair)
-      (ormap (lambda (v) (memq v (map car pair))) n*))
-
-    (define/public (relevant-attribute? attr)
-      (ormap (lambda (v) (send attr same-as? dom% v)) n*))))
+        (send (apply +@ (append n* (list n^))) join state)))))
 
 (define tree%
   (class unary-attribute%
@@ -1057,7 +995,7 @@
         (cond
          [(list? t) 
           (send (new list% [rands (list t)]) join state)]
-         [(send state has-attribute list% t) state]
+         [(send state has-stored list% t) state]
          [(tree? t)
           (match-define (tree nodes) t)
           (and (list? nodes)
@@ -1065,7 +1003,7 @@
                  #:break (not state)
                  (send (tree/a node) join state)))]
          [(var? t)
-          (send state set-attribute (new this% [rands rands]))]
+          (send state set-stored (new this% [rands rands]))]
          [else fail])))
 
     (define/augride (satisfy state)
@@ -1104,7 +1042,7 @@
       (match (send (or partial (body ls)) satisfy state)
         [#f (new fail% [trace this])]
         [#t state]
-        [c^ (send state set-attribute (new this% [rands rands] [partial c^]))]))
+        [c^ (send state set-stored (new this% [rands rands] [partial c^]))]))
 
     (define/override (satisfy state)
       (match (send (or partial (body ls)) satisfy state)
@@ -1205,7 +1143,7 @@
         [c^
          (cond
           [(is-a? c^ join%) (send c^ join state)]
-          [else (send state set-attribute
+          [else (send state set-stored
                       (new this% [rands rands] [partial c^] [fn fn]))])]))
 
     (define/override (satisfy state)
@@ -1225,7 +1163,7 @@
 
     (define/augment (join state)
       (cond
-       [(send state get-attribute this% x)
+       [(send state get-stored this% x)
         => (lambda (n) (send state associate (cadr rands) n))]
        [(send (tree/a x) join state)
         => (lambda (state)
@@ -1245,7 +1183,7 @@
                          join state))]
                 [(number? n)
                  (send state associate (for/list ([i n]) (var 'n)) x)]
-                [else (send state set-attribute (new this% [rands (list x n)]))])))]
+                [else (send state set-stored (new this% [rands (list x n)]))])))]
        [else #f]))
 
     (define/public (get-value)

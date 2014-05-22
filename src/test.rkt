@@ -48,12 +48,27 @@
   ()
 
   (check-equal?
-   (new join% [s `((,x . 5))])
-   (new join% [s `((,x . 5))]))
+   (new join% [subst `((,x . 5))])
+   (new join% [subst `((,x . 5))]))
 
   (check-equal?
    (run succeed)
-   (list empty-state)))
+   (list empty-state))
+
+  (check-equal?
+   (send (new satisfy% [subst `((,x . 5))])
+         join (new join%))
+   (new satisfy% [subst `((,x . 5))]))
+
+  (check-equal?
+   (send (new satisfy% [subst `((,x . 5))])
+         satisfy (new join% [subst `((,x . 5))]))
+   #t)
+
+  (check-equal?
+   (send (new satisfy% [subst `((,x . ,y))])
+         satisfy (new join% [subst `((,y . 5))]))
+   (new satisfy% [subst `((,x . 5))])))
 
 (define-dependency-test associate-tests
   (state-tests)
@@ -603,23 +618,24 @@
    "builtin tests"
    
    (time (state-tests))
-   (time (associate-tests))
-   (time (conj-tests))
-   (time (disj-tests))
-   (time (shape-tests))
-   (time (==>-tests))
-   (time (operator-tests))
-
-   (time (map-tests))
-   (time (list-tests))
-   (time (dom-tests))
-   (time (fd-tests))
-   (time (length-tests))
-   (time (tree-tests))
-   (time (dots-tests))
-
-   (time (stlc-tests))
-   (time (eigen-tests))))
+;;    (time (associate-tests))
+;;    (time (conj-tests))
+;;    (time (disj-tests))
+;;    (time (shape-tests))
+;;    (time (==>-tests))
+;;    (time (operator-tests))
+;; 
+;;    (time (map-tests))
+;;    (time (list-tests))
+;;    (time (dom-tests))
+;;    (time (fd-tests))
+;;    (time (length-tests))
+;;    (time (tree-tests))
+;;    (time (dots-tests))
+;; 
+;;    (time (stlc-tests))
+;;    (time (eigen-tests))
+))
 
 (module+ main
   (parameterize ([pretty-print-columns 102])
