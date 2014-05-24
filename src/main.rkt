@@ -151,18 +151,29 @@
     (define/public (add-scope ls)
       (new this% [rands rands] [scope (cons ls scope)]))
 
-    (define (force-delays stream)
-      (let ([rands (filter (curryr is-a? functionable<%>) rands)])
-        (for/fold ([stream stream]) ([r rands])
-          (send r augment-stream stream))))
-
     ;; State Stream -> Stream
-    (define/pubment (augment-stream stream)
-      (inner (stream-filter
-              (compose not (curryr is-a? fail%))
-              (stream-map (lambda (state) (send this run state))
-                          (force-delays stream)))
-             augment-stream stream))
+    (define/public (augment-stream stream)
+      (stream-filter
+       (compose not (curryr is-a? fail%))
+       (stream-map 
+        (lambda (state)
+          (call/cc 
+           (lambda (k)
+             (let ([rands (map (update-functionable state k) rands)])
+               (cond
+                [(findf (curryr is-a? functionable<%>) rands)
+                 (define-values (new-state new-rands)
+                   (for/fold ([state state] [rands '()]) ([r rands])
+                     (cond
+                      [(is-a? r functionable<%>)
+                       (let ([out (var 'out)])
+                         (values (send r ->rel out state)
+                                 (cons out rands)))]
+                      [else (values state (cons r rands))])))
+                 (send (send this update-rands (reverse new-rands))
+                       run new-state)]
+                [else (send this run state)])))))
+        stream)))
 
     (define/public (combine state)
       (send state set-stored this))))
@@ -187,7 +198,12 @@
     (inherit-field rands)
 
     (define/public (equal-to? obj recur?)
-      (and (is-a? obj this%)
+      (and (or (implementation? 
+                (send obj get-rator)
+                (class->interface this%))
+               (implementation? 
+                this%
+                (class->interface (send obj get-rator))))
            (eq? (car rands) (car (get-field rands obj)))))
     (define/public (equal-hash-code-of hash-code)
       (+ 1 (hash-code rands)))
@@ -209,7 +225,7 @@
     (super-new)
 
     (define/public (merge a state)
-       (cond
+      (cond
        [(implementation? (send a get-rator) (class->interface this%))
         (send state set-stored a)]
        [else (send state set-stored this)]))))
@@ -236,7 +252,8 @@
     (init-field [subst '()] [store '()])
 
     (define (idemize subst)
-      (map (lambda (p) (list (car p) (walk/internal (cdr p) subst))) subst))
+      (map (lambda (p) (list (car p) (walk/internal (cdr p) subst)))
+           subst))
 
     (define sexp-me
       (list (object-name this%) (idemize subst) store))
@@ -296,7 +313,7 @@
          [else (cons (stream-first stream) 
                      (take (stream-rest stream) (and n (sub1 n))))]))
       (define answer-stream
-        (send this augment-stream (list (new join%))))
+        (send this augment-stream (list (new state%))))
       (take (stream-filter (compose not (curryr is-a? fail%)) answer-stream) n))
 
     (define/public (reify v)
@@ -363,14 +380,9 @@
       (add-store (add-subst state)))
 
     (define/public (combine state)
-      (printf "~a combine: ~a ~a\n" this% this state)
-      (when (and (is-a? this join%)
-                 (is-a? state satisfy%))
-        (error 'combine "can't combine"))
       (run state))
 
     (define/public (update state^)
-      (printf "~a update: ~a ~a\n" this% this state^)
       (define updated-subst
         (for/fold
           ([state (new this%)])
@@ -394,7 +406,8 @@
          (compose not (curryr is-a? fail%))
          (send thing augment-stream stream))))
 
-    (define/public (trivial?) #f)
+    (define/public (trivial?)
+      (and (null? subst) (null? store)))
     (define/public (fail?) #f)))
 
 ;; check-scope : 
@@ -446,27 +459,6 @@
   ;; returns the total set of related variables at the end
   (set->list (loop X related)))
 
-(define join%
-  (class state%
-    (super-new)
-    (inherit walk add-store add-subst)
-    (inherit-field subst store)))
-
-(define satisfy%
-  (class state%
-    (super-new)
-    (inherit-field subst store)
-    (inherit add-store add-subst)
-
-    (define/override (trivial?)
-      (and (null? subst) (null? store)))
-
-    (define/public (make-join)
-      (new join% [subst subst] [store store]))
-
-    (define/override (augment-stream stream)
-      (send (make-join) augment-stream stream))))
-
 (define fail%
   (class* state% (printable<%>)
     (init-field [trace #f])
@@ -488,7 +480,8 @@
     (define/override (add-store store) this)
     (define/override (fail?) #t)
     (define/override (update state) this)
-    (define/override (combine state) this)))
+    (define/override (combine state) this)
+    (define/override (trivial?) #f)))
 
 (define fail (new fail%))
 
@@ -562,7 +555,7 @@
 (define (conj . clauses)
   (new conj% [clauses clauses]))
 
-(define empty-state (new join%))
+(define empty-state (new state%))
 
 ;; -----------------------------------------------------------------------------
 ;; disjunction
@@ -582,7 +575,7 @@
     (unless (> (length states) 1)
       (error 'disj% "invalid states: ~a" states))
 
-    (unless (andmap (lambda (ss) (is-a? ss satisfy%)) states)
+    (unless (andmap (lambda (ss) (is-a? ss state%)) states)
       (error 'disj% "invalid states: ~a" states))
 
     (define/public (update state)
@@ -591,12 +584,9 @@
                 (map (lambda (ss) (send ss update state))
                      states)))
       (cond
-       [(null? result) 
-        fail]
-       [(findf (lambda (ss) (send ss trivial?)) result) 
-        succeed]
-       [(null? (cdr result)) 
-        (send (car result) make-join)]
+       [(null? result) fail]
+       [(findf (lambda (ss) (send ss trivial?)) result) succeed]
+       [(null? (cdr result)) (car result)]
        [else (new disj% [states result])]))
 
     (define/public (run state)
@@ -615,7 +605,7 @@
 (define (disj . clauses)
   (define result 
     (filter (lambda (state) (not (is-a? state fail%)))
-            (map (lambda (c) (send c run (new satisfy%)))
+            (map (lambda (c) (send c run (new state%)))
                  clauses)))
   (cond
    [(null? result) (new fail% [trace `(disj . ,clauses)])]
@@ -914,11 +904,11 @@
         (send (apply conj store)
               run
               (send (new dom% [rands (list x new-d)])
-                    run (new join%
+                    run (new state%
                              [subst (get-field subst state)]
                              [store store^])))]))
 
-    (define/augment (augment-stream stream)
+    (define/override (augment-stream stream)
       (send (apply disj (for/list ([i (dom->list d)]) (≡ x i)))
             augment-stream stream))))
 
@@ -1034,22 +1024,20 @@
     (define/override (custom-display p) 
       (display sexp-me p))
 
+    (define/override (update-rands rands)
+      (new this% [rands rands] [partial partial]))
+
     (define/public (update-partial partial)
       (new this% [rands rands] [partial partial]))
 
     (define/override (update state)
-      (printf "update:\n this: ~a\n" this)
-      (define interp
-        (send this body . rands))
-      (printf " interp: ~a\n" interp)
       (define new-partial
-        (or partial (send interp run (new satisfy%))))
-      (printf " new-partial: ~a\n" new-partial)
+        (or partial (send this body . rands)))
       (define result (send new-partial update state))
       (cond
-       [(send result trivial?) succeed]
-       [(send result fail?) result]
-       [else (send this update-partial result)]))))
+       [(is-a? result disj%)
+        (send this update-partial result)]
+       [else result]))))
 
 (define list%
   (partial-attribute-mixin
@@ -1104,7 +1092,7 @@
 
 (define (==> t [c succeed]) 
   (new ==>% 
-       [test (send t run (new satisfy%))]
+       [test (send t run (new state%))]
        [consequent c]))
 
 (define shape%
@@ -1133,13 +1121,13 @@
 (define dots%
   (class list%
     (super-new)
-    (define/override (body fn ls)
+    (define/override (body ls fn)
       (disj (==> (shape ls (list)))
             (==> (shape ls (cons (any) (any)))
                  (conj (fn (car@ ls)) (dots/a fn (cdr@ ls))))))))
 
 (define (dots/a fn ls)
-  (new dots% [rands (list fn ls)]))
+  (new dots% [rands (list ls fn)]))
 
 (define length%
   (class binary-attribute%
@@ -1169,7 +1157,7 @@
                            (length/a node n)))
                   update state)]
            [(number? n)
-            (== (for/list ([i n]) (var (gensym 'n))) x)]
+            (== (for/list ([i n]) (var (gensym 'i))) x)]
            [else (conj (tree/a x) (new this% [rands (list x n)]))]))]))
     
     (define/public (get-value)
@@ -1182,7 +1170,7 @@
 
 (define (run obj [n #f])
   (cond
-   [(send (conj obj) run (new join%))
+   [(send (conj obj) run (new state%))
     => (lambda (state) (send state narrow n))]
    [else '()]))
 
@@ -1194,7 +1182,8 @@
     (define ls (car rands))
 
     (define/public (->out state k)
-      (let ([ls ((update-functionable state k) ls)])
+      (let ([ls (send state walk
+                      ((update-functionable state k) ls))])
         (cond
          [(pair? ls) (cdr ls)]
          [(not (or (object? ls) (var? ls))) 
@@ -1222,7 +1211,7 @@
     (define ls (car rands))
 
     (define/public (->out state k)
-      (let ([ls ((update-functionable state k) ls)])
+      (let ([ls (send state walk ((update-functionable state k) ls))])
         (cond
          [(pair? ls) (car ls)]
          [(not (or (var? ls) (object? ls))) 
@@ -1291,15 +1280,17 @@
     (define/override (custom-display p) 
       (display (list (object-name this%) rands partial) p))
 
+    (define/public (update-partial partial)
+      (new this% [rands rands] [partial partial]))
+
     (define/augride (update state)
-      (define result 
-        (send (or partial (send (new satisfy%) combine
-                                (send this body . rands)))
-              run state))
+      (define new-partial
+        (or partial (send this body . rands)))
+      (define result (send new-partial update state))
       (cond
-       [(send result trivial?) state]
-       [(send result fail?) result]
-       [else (new this% [rands rands] [partial result])]))))
+       [(is-a? result disj%)
+        (send this update-partial result)]
+       [else result]))))
 
 (define-syntax (define@ stx)
   (syntax-parse stx

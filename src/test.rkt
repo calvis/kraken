@@ -47,48 +47,48 @@
 (define-dependency-test state-tests
   ()
 
-  (check-false
-   (equal? (new join%) (new satisfy%)))
+  (check-true
+   (equal? (new state%) (new state%)))
 
   (check-equal?
-   (new join% [subst `((,x . 5))])
-   (new join% [subst `((,x . 5))]))
+   (new state% [subst `((,x . 5))])
+   (new state% [subst `((,x . 5))]))
 
   ;; add no new information to a satisfy state
   (check-equal?
-   (send (new satisfy% [subst `((,x . 5))])
-         update (new join%))
-   (new satisfy% [subst `((,x . 5))]))
+   (send (new state% [subst `((,x . 5))])
+         update (new state%))
+   (new state% [subst `((,x . 5))]))
 
   (check-equal?
-   (send (send (new satisfy% [subst `((,x . 5))])
-               update (new join% [subst `((,x . 5))]))
+   (send (send (new state% [subst `((,x . 5))])
+               update (new state% [subst `((,x . 5))]))
          trivial?)
    #t)
 
   (check-equal?
-   (send (new satisfy% [subst `((,x . ,y))])
-         update (new join% [subst `((,y . 5))]))
-   (new satisfy% [subst `((,x . 5))]))
+   (send (new state% [subst `((,x . ,y))])
+         update (new state% [subst `((,y . 5))]))
+   (new state% [subst `((,x . 5))]))
 
   (check-equal?
-   (send (new join%) combine (new join% [subst `((,x . 5))]))
-   (new join% [subst `((,x . 5))]))
+   (send (new state%) combine (new state% [subst `((,x . 5))]))
+   (new state% [subst `((,x . 5))]))
 
   (check-equal?
    (run succeed)
    (list empty-state))
 
   (define (foo x) (new base% [rands (list x)]))
-  (check-false (send (new satisfy%) has-stored (foo 5)))
+  (check-false (send (new state%) has-stored (foo 5)))
 
   (check-equal?
-   (send (new satisfy% [store (list succeed)])
-         update (new join%))
-   (new satisfy%))
+   (send (new state% [store (list succeed)])
+         update (new state%))
+   (new state%))
 
   (check-equal?
-   (send (new state%) update (new join% [subst `((,x . 5))]))
+   (send (new state%) update (new state% [subst `((,x . 5))]))
    (new state%)))
 
 (define-dependency-test associate-tests
@@ -96,11 +96,11 @@
 
   (check-equal?
    (run (≡ x 5))
-   (list (new join% [subst `((,x . 5))])))
+   (list (new state% [subst `((,x . 5))])))
   
   (check-equal?
    (run (≡ x #f))
-   (list (new join% [subst `((,x . #f))])))
+   (list (new state% [subst `((,x . #f))])))
   
   (check-equal?
    (run (≡ x #f))
@@ -120,7 +120,7 @@
 
   (check-equal?
    (run (≡ x (cons 1 2)))
-   (list (new join% [subst `((,x . ,(cons 1 2)))])))
+   (list (new state% [subst `((,x . ,(cons 1 2)))])))
 
   (check-equal?
    (run (≡ (cons 1 2) x))
@@ -132,16 +132,16 @@
 
   (check-equal? 
    (run (≡ x '()))
-   (list (new join% [subst `((,x . ()))])))
+   (list (new state% [subst `((,x . ()))])))
 
   (check-equal?
    (≡ (cdr@ (list 1)) (list))
    succeed)
 
   (check-equal?
-   (send (new satisfy% [store (list (≡ (cdr@ (list 1)) (list)))])
-         update (new join%))
-   (new satisfy%)))
+   (send (new state% [store (list (≡ (cdr@ (list 1)) (list)))])
+         update (new state%))
+   (new state%)))
 
 (define-dependency-test conj-tests 
   (associate-tests)
@@ -222,7 +222,7 @@
 
   (check-equal?
    (send (shape (cons 1 2) (cons (any) (any)))
-         update (new satisfy%))
+         update (new state%))
    (new state%)))
 
 (define-dependency-test ==>-tests
@@ -230,53 +230,52 @@
 
   (let ([c (==> (shape 4 (list)))])
     (check-not-false
-     (send (new satisfy% [store (list c)]) has-stored c)))
+     (send (new state% [store (list c)]) has-stored c)))
 
   (check-equal?
-   (send (new satisfy% [store (list (==> (shape 4 (list))))])
-         update (new join%))
+   (send (new state% [store (list (==> (shape 4 (list))))])
+         update (new state%))
    (new fail%))
 
   (check-equal?
-   (send (new join% [store (list (==> (≡ x 5)))])
+   (send (new state% [store (list (==> (≡ x 5)))])
          associate x 5)
-   (new join% [subst `((,x . 5))]))
+   (new state% [subst `((,x . 5))]))
 
   (check-equal?
    (send (new ==>%
-              [test (send (new satisfy%) associate x 5)]
+              [test (send (new state%) associate x 5)]
               [consequent succeed])
-         update (send (new join%) associate x 5))
+         update (send (new state%) associate x 5))
    (new state%))
 
   (check-equal?
    (==> (≡ x 5))
    (new ==>% 
-        [test (new satisfy% [subst `((,x . 5))])]
+        [test (new state% [subst `((,x . 5))])]
         [consequent succeed]))
 
-  (bar)
   (check-equal?
-   (send (new satisfy% [store (list (==> (≡ x 5)))])
-         update (new join% [subst `((,x . 5))]))
-   (new satisfy%))
+   (send (new state% [store (list (==> (≡ x 5)))])
+         update (new state% [subst `((,x . 5))]))
+   (new state%))
 
   (check-equal?
    (==> (==> (≡ x 5)))
    (new ==>%
-        [test (new satisfy% [store (list (==> (≡ x 5)))])]
+        [test (new state% [store (list (==> (≡ x 5)))])]
         [consequent succeed]))
 
   (check-equal?
-   (send (new satisfy% [store (list (==> (==> (≡ x 5))))])
-         update (new join% [subst `((,x . 5))]))
-   (new satisfy%))
+   (send (new state% [store (list (==> (==> (≡ x 5))))])
+         update (new state% [subst `((,x . 5))]))
+   (new state%))
 
   (check-equal?
    (send (send (==> (==> (≡ x 5)))
-               combine (new satisfy%))
-         update (new join% [subst `((,x . 5))]))
-   (new satisfy%))
+               combine (new state%))
+         update (new state% [subst `((,x . 5))]))
+   (new state%))
 
   (check-equal?
    (map (lambda (state) (send state reify z))
@@ -337,8 +336,8 @@
    (run (dom/a x (range-dom 0 1)))
    (run (disj (≡ x 0) (≡ x 1))))
 
-  (check-false (send (new join%) get-stored dom% x))
-  (check-false (send (new join%) get-stored dom% 5)))
+  (check-false (send (new state%) get-stored dom% x))
+  (check-false (send (new state%) get-stored dom% 5)))
 
 (define-dependency-test fd-tests
   (operator-tests dom-tests)
@@ -366,7 +365,7 @@
                 (conj (≡ n1 1) (≡ n2 0))))))
 
   (let ([c1 (+@ x y z)] [c2 (+@ z y x)])
-    (check-false (send (send (new join%) set-stored c1)
+    (check-false (send (send (new state%) set-stored c1)
                        has-stored c2))))
 
 (define-dependency-test list-tests
@@ -390,6 +389,10 @@
 
 (define-dependency-test tree-tests
   (operator-tests list-tests)
+
+  (check-equal?
+   (list/a x)
+   (tree/a x))
 
   (check-equal?
    (run (conj (list/a x) (tree/a x)))
@@ -493,7 +496,7 @@
               (length/a x n1)
               (length/a (list 3) n2)
               (length/a y n3))
-             update (new join%))
+             update (new state%))
        (new state% [subst `((,n2 . 1)
                            (,n1 . 0)
                            (,n^ . 1)
@@ -540,13 +543,12 @@
 
   (define (uw5 v) (≡ v 5))
 
-  (bar)
   (check-equal?
    (send (disj (==> (shape (list x) (list)))
                (==> (shape (list x) (cons (any) (any)))
                     (conj (≡ x 5) (dots/a uw5 (cdr@ (list x))))))
-         update (new join%))
-   (new join% [subst `((,x . 5))]))
+         update (new state%))
+   (new state% [subst `((,x . 5))]))
 
   (check-equal?
    (map (lambda (state) (send state reify x))
@@ -558,23 +560,18 @@
         (run (dots/a (lambda (v) (≡ v 5)) (list x x x)) 1))
    '(5))
 
-  #;
+  (check-equal?
+   (tree/a x)
+   (dots/a (lambda (v) succeed) x))
+
   (check-equal?
    (run (conj (tree/a x) (dots/a (lambda (v) succeed) x)) 1)
    (run (dots/a (lambda (v) succeed) x) 1))
 
-  #;
-  (check-equal?
-   (send (send (dots/a (lambda (v) succeed) x) join (new join%))
-         set-attribute (tree/a x))
-   (send (dots/a (lambda (v) succeed) x) join (new join%)))
-  
-  #;
-  (let ([state (conj (length/a x 3) (dots/a (lambda (v) (≡ v 5)) x))])
-    (let ([answer (run state)])
-      (check-false (null? answer))
-      (check-equal? (map (lambda (state) (send state reify x)) answer) 
-                    '((5 5 5))))))
+  (check-equal? 
+   (map (lambda (state) (send state reify x))
+        (run (conj (length/a x 3) (dots/a (lambda (v) (≡ v 5)) x))))
+   '((5 5 5))))
 
 (define-dependency-test stlc-tests
   (operator-tests dots-tests)
@@ -585,18 +582,12 @@
         (super-new)
         (inherit-field rands)
         
-        (define/augment (join state)
+        (define/augment (update state)
           (let ([x (send state walk (car rands))])
             (cond
-             [(symbol? x)
-              state]
-             [(var? x)
-              (send state set-attribute (new this% [rands (list x)]))]
-             [else fail])))
-        
-        (define/augride (satisfy state)
-          (let ([x (send state walk (car rands))])
-            (or (symbol? x) (and (var? x) (symbol/a x)))))))
+             [(symbol? x) succeed]
+             [(var? x) (new this% [rands (list x)])]
+             [else fail])))))
     (new symbol% [rands (list x)]))
 
   (check-equal? (run (symbol/a 'x)) (list empty-state))
@@ -626,7 +617,7 @@
   
   (check-equal?
    (run (lookup@ `((x . int)) `x `int))
-   (list (new join%)))
+   (list (new state%)))
 
   (check-equal?
    (run (lookup@ `((x . int)) x `int))
@@ -726,7 +717,7 @@
    1))
 
 (define-dependency-test eigen-tests
-  ()
+  (operator-tests)
 
   (check-equal? 
    (run (exists (x) (forall (e) (≡ e x))))
