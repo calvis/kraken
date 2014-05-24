@@ -2,7 +2,9 @@
 
 (require (except-in rackunit fail) rackunit/text-ui)
 (require (for-syntax racket/base syntax/parse))
-(require "main.rkt" "states.rkt")
+(require (lib "kraken/src/main.rkt")
+         (lib "kraken/lib/fd.rkt")
+         (lib "kraken/lib/attributes.rkt"))
 
 (define (bar)
   (printf "====================================================\n"))
@@ -36,6 +38,15 @@
 
 (define-syntax-rule (check-quick-termination expr)
   (check-termination-macro 50 expr))
+
+(define-simple-check (check-one-answer expr)
+  (= 1 (length (run expr 2))))
+
+(define-simple-check (check-run-succeed expr)
+  (equal? (run expr) (run succeed)))
+
+(define-simple-check (check-run-fail expr)
+  (equal? (run expr) (run fail)))
 
 ;; =============================================================================
 ;; tests
@@ -321,14 +332,12 @@
    (run (exists (x) (forall (e) (≡ e x))))
    (run fail))
 
-  (check-equal?
-   (length (run (forall (e) (exists (y) (≡ e y)))))
-   1)
+  (check-one-answer
+   (forall (e) (exists (y) (≡ e y))))
 
-  (check-equal?
-   (length (run (conj (forall (e1) (exists (x1) (≡ e1 x1)))
-                      (forall (e2) (exists (x2) (≡ e2 x2))))))
-   1)
+  (check-one-answer
+   (conj (forall (e1) (exists (x1) (≡ e1 x1)))
+         (forall (e2) (exists (x2) (≡ e2 x2)))))
 
   ;; scope: ((x) (e) (y))
   (check-equal?
@@ -342,9 +351,8 @@
    (run (forall (e) (≡ e 5)))
    (run fail))
 
-  (check-equal?
-   (length (run (forall (e) (exists (x) (≡ (list e) x)))))
-   1)
+  (check-one-answer
+   (forall (e) (exists (x) (≡ (list e) x))))
 
   (check-equal?
    (run (forall (e) (exists (x) (≡ (list x) e))))
@@ -402,32 +410,32 @@
   (operator-tests)
 
   (check-equal?
-   (run (dom/a x (range-dom 2 2)))
+   (run (dom@ x (range-dom 2 2)))
    (run (≡ x 2)))
 
   (check-equal?
-   (run (conj (dom/a x (range-dom 1 2)) (dom/a x (range-dom 2 3))))
-   (run (dom/a x (range-dom 2 2))))
+   (run (conj (dom@ x (range-dom 1 2)) (dom@ x (range-dom 2 3))))
+   (run (dom@ x (range-dom 2 2))))
 
-  (let ([answer (run (dom/a x (range-dom 4 5)))])
-    (check-equal? (length answer) 2 (~a answer)))
+  (check-equal? (length (run (dom@ x (range-dom 4 5)))) 2)
 
-  (let ([state (conj (dom/a x (range-dom 1 10))
-                     (dom/a x (range-dom 3 7))
-                     (dom/a x (range-dom 4 5)))])
-    (check-equal? (run state) (run (dom/a x (range-dom 4 5)))))
+  (check-equal? 
+   (run (conj (dom@ x (range-dom 1 10))
+                     (dom@ x (range-dom 3 7))
+                     (dom@ x (range-dom 4 5))))
+   (run (dom@ x (range-dom 4 5))))
 
   (check-equal?
    (run (conj (conj (≡ x y)
-                    (dom/a z (range-dom 1 2)))
+                    (dom@ z (range-dom 1 2)))
               (conj (≡ y z)
-                    (dom/a x (range-dom 2 3)))))
+                    (dom@ x (range-dom 2 3)))))
    (run (conj (≡ x y)
               (≡ y z)
               (≡ z 2))))
 
   (check-equal?
-   (run (dom/a x (range-dom 0 1)))
+   (run (dom@ x (range-dom 0 1)))
    (run (disj (≡ x 0) (≡ x 1))))
 
   (check-false (send (new state%) get-stored dom% x))
@@ -441,14 +449,14 @@
    (run (≡ x 2)))
 
   (check-equal?
-   (run (conj (dom/a x (range-dom 1 10))
+   (run (conj (dom@ x (range-dom 1 10))
               (+@ x 5 7)))
    (run (≡ x 2)))
 
   (check-equal?
    (run (conj (+@ x 5 7)
-              (dom/a x (range-dom 1 10))))
-   (run (conj (dom/a x (range-dom 1 10))
+              (dom@ x (range-dom 1 10))))
+   (run (conj (dom@ x (range-dom 1 10))
               (+@ x 5 7))))
 
   (check-equal?
@@ -465,115 +473,81 @@
 (define-dependency-test list-tests
   ()
 
-  (check-equal?
-   (run (list/a (list)))
-   (run succeed))
+  (check-run-succeed
+   (list@ (list)))
+
+  (check-run-succeed
+   (list@ (list 1)))
+
+  (check-run-succeed
+   (list@ (list 1 2)))
 
   (check-equal?
-   (run (list/a (list 1)))
-   (run succeed))
-
-  (check-equal?
-   (run (list/a (list 1 2)))
-   (run succeed))
-
-  (check-equal?
-   (run (list/a 4))
+   (run (list@ 4))
    (list)))
 
 (define-dependency-test tree-tests
   (operator-tests list-tests)
 
   (check-equal?
-   (list/a x)
+   (list@ x)
    (tree/a x))
 
   (check-equal?
-   (run (conj (list/a x) (tree/a x)))
-   (run (list/a x)))
+   (run (conj (list@ x) (tree/a x)))
+   (run (list@ x)))
 
   (check-equal?
-   (run (conj (list/a x) (tree/a x)))
-   (run (conj (tree/a x) (list/a x)))))
+   (run (conj (list@ x) (tree/a x)))
+   (run (conj (tree/a x) (list@ x)))))
 
 (define-dependency-test length-tests
   (operator-tests list-tests fd-tests tree-tests)
   
+  (check-run-succeed
+   (length@ (list 1 2 3) 3))
+
   (check-equal?
-   (run (length/a (list 1 2 3) 3))
-   (list empty-state))
+   (map (lambda (state) (send state reify x))
+        (run (length@ (list 1 2 3) x) 2))
+   '(3))
 
-  (let ([state (send (length/a (list 1 2 3) x) run empty-state)])
-    (check-not-false state)
-    (let ([answer (send state narrow)])
-      (check-false (null? answer) (~a answer))
-      (check-true (null? (cdr answer)) (~a answer))
-
-      (check-equal? (send (car answer) walk x) 3
-                    (~a (car answer)))))
-
-  (let ([answer (run (length/a x 3) 2)])
-    (check-false (null? answer))
-    (check-true (null? (cdr answer)) (~a answer))
-
-    (check-equal? (length (send (car answer) walk x)) 3 (~a (car answer))))
-
-  (define n1 (var 'n1)) (define n2 (var 'n2))
-  (let ([answer (run (conj (length/a x n1) 
-                           (length/a y n2)
-                           (+@ n1 n2 1)))])
+  (let ([answer (run (exists (n1 n2)
+                       (conj (length@ x n1) 
+                             (length@ y n2)
+                             (+@ n1 n2 1))))])
     (check-equal? (length answer) 2))
 
-  (let ([answer (run (length/a (tree `()) 0))])
-    (check-false (null? answer)))
+  (check-run-succeed
+   (length@ (tree `()) 0))
 
-  (let ([answer (run (length/a (tree `((1 2))) 2))])
-    (check-false (null? answer)))
+  (check-one-answer
+   (length@ (tree `((1 2))) 2))
 
-  (let ([answer (run (length/a (tree `((1) (2))) 2))])
-    (check-false (null? answer)))
+  (check-one-answer
+   (length@ (tree `((1) (2))) 2))
 
-  (let ([answer (run (length/a (tree `(() (1 2))) 2))])
-    (check-false (null? answer)))
+  (check-one-answer
+   (length@ (tree `(() (1 2))) 2))
 
-  (let ([answer (run (length/a (tree `((1 2) ())) 2))])
-    (check-false (null? answer)))
+  (check-one-answer
+   (length@ (tree `((1 2) ())) 2))
 
-  (let ([answer (run (conj (≡ x `(,y ,y)) (list/a `(,y ,y))))])
-    (check-false (null? answer)))
+  (check-one-answer
+   (conj (≡ x `(,y ,y)) (list@ `(,y ,y))))
 
-  (let ([answer (run (length/a (tree `(,x)) 2))])
-    (check-false (null? answer)))
-
-  (let ([state (send (length/a (tree `(,x ,y)) 1) run empty-state)])
-    (check-not-false state)
-
-    (let ([answer (send state narrow 4)])
-      (check-false (null? answer))
-      (check-true (is-a? (car answer) state%) (~a (car answer)))
-
-      (check-equal?
-       (map (lambda (state) (send state reify (list x y))) answer)
-       '((() (_.0)) ((_.0) ())))))
-
-  (let ([state (send (length/a (tree `(,x ,y)) 2) run empty-state)])
-    (check-not-false state)
-
-    (let ([answer (send state narrow 4)])
-      (check-false (null? answer))
-      (check-true (is-a? (car answer) state%) (~a (car answer)))
-
-      (check-equal?
-       (map (lambda (state) (send state reify (list x y))) answer)
-       '((() (_.0 _.1)) ((_.0) (_.1)) ((_.0 _.1) ())))))
+  (check-one-answer
+   (length@ (tree `(,x)) 2))
 
   (check-equal?
-   (run (exists (x y) (length/a (tree `(,x (3) ,y)) 0)))
-   (run fail))
+   (map (lambda (state) (send state reify (list x y))) 
+        (run (length@ (tree `(,x ,y)) 1) 4))
+   '((() (_.0)) ((_.0) ())))
 
   (check-equal?
-   (length (run (exists (x y) (length/a (tree `(,x (3) ,y)) 1))))
-   1)
+   (map (lambda (state) (send state reify (list x y)))
+        (run (length@ (tree `(,x ,y)) 2)))
+   '((() (_.0 _.1)) ((_.0) (_.1)) ((_.0 _.1) ())))
 
   (let ([n1 (var 'n1)]
         [n2 (var 'n2)]
@@ -583,9 +557,9 @@
       (check-equal?
        (send (conj 
               (apply +@ (append n* (list 1)))
-              (length/a x n1)
-              (length/a (list 3) n2)
-              (length/a y n3))
+              (length@ x n1)
+              (length@ (list 3) n2)
+              (length@ y n3))
              update (new state%))
        (new state% [subst `((,n2 . 1)
                            (,n1 . 0)
@@ -594,38 +568,44 @@
                            (,x . ())
                            (,y . ()))]))))
 
+  (check-run-fail
+   (exists (x y) (length@ (tree `(,x (3) ,y)) 0)))
+
+  (check-one-answer
+   (exists (x y) (length@ (tree `(,x (3) ,y)) 1)))
+
   (check-equal?
-   (length (run (exists (x y) (length/a (tree `(,x (3) ,y)) 2))))
+   (length (run (exists (x y) (length@ (tree `(,x (3) ,y)) 2))))
    2)
 
   (check-equal?
    (map (lambda (state) (send state reify (list x y)))
         (run (exists (nx ny)
-               (conj (length/a x nx)
-                     (length/a y ny)
+               (conj (length@ x nx)
+                     (length@ y ny)
                      (+@ nx ny 0)))))
    '((() ())))
 
   (check-equal?
    (map (lambda (state) (send state reify (list x y)))
         (run (exists (n nx ny)
-               (conj (dom/a n (range-dom 0 1))
-                     (length/a x nx)
-                     (length/a y ny)
+               (conj (dom@ n (range-dom 0 1))
+                     (length@ x nx)
+                     (length@ y ny)
                      (+@ nx 1 ny n)))))
    '((() ())))
 
   (check-equal?
    (map (lambda (state) (send state reify (list x y)))
         (run (exists (n)
-               (conj (length/a (tree `(,x (3) ,y)) n)
-                     (dom/a n (range-dom 0 1))))))
+               (conj (length@ (tree `(,x (3) ,y)) n)
+                     (dom@ n (range-dom 0 1))))))
    '((() ())))
 
   (let ([answer (run (exists (n)
                        (conj (≡ z (tree `(,x (3) ,y)))
-                             (length/a z n)
-                             (dom/a n (range-dom 1 5)))))])
+                             (length@ z n)
+                             (dom@ n (range-dom 1 5)))))])
     (check-equal? (length answer) 15)))
 
 (define-dependency-test dots-tests
@@ -636,31 +616,31 @@
   (check-equal?
    (send (disj (==> (shape (list x) (list)))
                (==> (shape (list x) (cons (any) (any)))
-                    (conj (≡ x 5) (dots/a uw5 (cdr@ (list x))))))
+                    (conj (≡ x 5) (dots@ uw5 (cdr@ (list x))))))
          update (new state%))
    (new state% [subst `((,x . 5))]))
 
   (check-equal?
    (map (lambda (state) (send state reify x))
-        (run (dots/a uw5 (list x)) 1))
+        (run (dots@ uw5 (list x)) 1))
    '(5))
 
   (check-equal?
    (map (lambda (state) (send state reify x))
-        (run (dots/a (lambda (v) (≡ v 5)) (list x x x)) 1))
+        (run (dots@ (lambda (v) (≡ v 5)) (list x x x)) 1))
    '(5))
 
   (check-equal?
    (tree/a x)
-   (dots/a (lambda (v) succeed) x))
+   (dots@ (lambda (v) succeed) x))
 
   (check-equal?
-   (run (conj (tree/a x) (dots/a (lambda (v) succeed) x)) 1)
-   (run (dots/a (lambda (v) succeed) x) 1))
+   (run (conj (tree/a x) (dots@ (lambda (v) succeed) x)) 1)
+   (run (dots@ (lambda (v) succeed) x) 1))
 
   (check-equal? 
    (map (lambda (state) (send state reify x))
-        (run (conj (length/a x 3) (dots/a (lambda (v) (≡ v 5)) x))))
+        (run (conj (length@ x 3) (dots@ (lambda (v) (≡ v 5)) x))))
    '((5 5 5))))
 
 (define-dependency-test stlc-tests
@@ -680,8 +660,8 @@
              [else fail])))))
     (new symbol% [rands (list x)]))
 
-  (check-equal? (run (symbol/a 'x)) (list empty-state))
-  (check-equal? (run (symbol/a 5))  (list))
+  (check-run-succeed (symbol/a 'x))
+  (check-run-fail (symbol/a 5))
 
   (define@ (lookup@ gamma x t)
     (==> (shape gamma (cons (any) (any)))
@@ -691,35 +671,29 @@
             (conj (≡ (car@ gamma) `(,y . ,s))
                   (lookup@ (cdr@ gamma) x t))))))
   
-  (check-equal?
-   (length (run (≡ (car@ `((x . int))) (cons `x `int))))
-   1)
+  (check-one-answer
+   (≡ (car@ `((x . int))) (cons `x `int)))
 
-  (check-equal?
-   (length (run (==> (shape `((x . int)) (cons (any) (any)))
-                     (≡ (car@ `((x . int))) (cons `x `int)))))
-   1)
+  (check-one-answer
+   (==> (shape `((x . int)) (cons (any) (any)))
+        (≡ (car@ `((x . int))) (cons `x `int))))
 
-  (check-equal?
-   (length (run (==> (shape `((x . int)) (cons (any) (any)))
-                     (disj (≡ `(x . int) `(x . int)) (lookup@ `() `x `int)))))
-   1)
+  (check-one-answer
+   (==> (shape `((x . int)) (cons (any) (any)))
+        (disj (≡ `(x . int) `(x . int)) (lookup@ `() `x `int))))
   
-  (check-equal?
-   (run (lookup@ `((x . int)) `x `int))
-   (list (new state%)))
+  (check-run-succeed
+   (lookup@ `((x . int)) `x `int))
 
   (check-equal?
    (run (lookup@ `((x . int)) x `int))
    (run (≡ x 'x)))
 
-  (check-equal?
-   (run (lookup@ `() x `int))
-   (run fail))
+  (check-run-fail
+   (lookup@ `() x `int))
 
-  (check-equal?
-   (run (lookup@ `((x . bool)) `x `int))
-   (run fail))
+  (check-run-fail
+   (lookup@ `((x . bool)) `x `int))
 
   (define@ (⊢@ gamma expr type)
     (case-shape expr
@@ -736,75 +710,60 @@
                (⊢@ gamma fn `(-> ,t1 ,type))
                (⊢@ gamma arg t1)))]))
   
-  (check-equal?
-   (run (==> (shape `(num 5) `(var ,x)) succeed))
-   (run fail))
+  (check-run-fail
+   (==> (shape `(num 5) `(var ,x)) succeed))
 
-  (check-equal?
-   (run (⊢@ `() `(var x) `int))
-   (run fail))
+  (check-run-fail
+   (⊢@ `() `(var x) `int))
   
-  (check-equal?
-   (run (⊢@ `((x . int)) `(var x) `int))
-   (run succeed))
+  (check-run-succeed
+   (⊢@ `((x . int)) `(var x) `int))
 
   (check-equal?
    (run (⊢@ `((x . int)) `(var ,x) `int))
    (run (≡ x `x)))
 
-  (check-equal?
-   (run (⊢@ `() `(num 5) `int))
-   (run succeed))
+  (check-run-succeed
+   (⊢@ `() `(num 5) `int))
 
-  (check-true
-   (= (length (run (⊢@ `() `(lambda (x) (var x)) `(-> int int)))) 1))
+  (check-one-answer
+   (⊢@ `() `(lambda (x) (var x)) `(-> int int)))
 
-  (check-equal?
-   (length
-    (run (==> (shape `(app (lambda (x) (var x)) (num 5)) `(app ,(any) ,(any)))
-              (conj (⊢@ `() `(lambda (x) (var x)) `(-> int int))
-                    (⊢@ `() `(num 5) `int)))))
-   1)
+  (check-one-answer
+   (==> (shape `(app (lambda (x) (var x)) (num 5)) `(app ,(any) ,(any)))
+        (conj (⊢@ `() `(lambda (x) (var x)) `(-> int int))
+              (⊢@ `() `(num 5) `int))))
 
-  (check-equal?
-   (length
-    (run (==> (shape `(app (lambda (x) (var x)) (num 5)) `(app ,(any) ,(any)))
-              (fresh (t1)
-                (conj (⊢@ `() `(lambda (x) (var x)) `(-> ,t1 int))
-                      (⊢@ `() `(num 5) t1))))))
-   1)
+  (check-one-answer
+   (==> (shape `(app (lambda (x) (var x)) (num 5)) `(app ,(any) ,(any)))
+        (fresh (t1)
+          (conj (⊢@ `() `(lambda (x) (var x)) `(-> ,t1 int))
+                (⊢@ `() `(num 5) t1)))))
 
-  (check-equal?
-   (length
-    (run (fresh (body)
-           (conj (== body `(var x))
-                 (⊢@ `() `(lambda (x) ,body) `(-> int int))))))
-   1)
+  (check-one-answer
+   (fresh (body)
+     (conj (== body `(var x))
+           (⊢@ `() `(lambda (x) ,body) `(-> int int)))))
 
-  (check-equal?
-   (length
-    (run (fresh (fn)
-           (conj (== fn `(lambda (x) (var x)))
-                 (⊢@ `() fn `(-> int int))))))
-   1)
+  (check-one-answer
+   (fresh (fn)
+     (conj (== fn `(lambda (x) (var x)))
+           (⊢@ `() fn `(-> int int)))))
 
-  (check-equal?
-   (length
-    (run (fresh (expr type gamma)
-           (conj
-            (≡ expr `(lambda (x) (var x)))
-            (≡ type `(-> int int))
-            (≡ gamma `())
-            (==> (shape expr `(lambda (,(any)) ,(any)))
-                 (fresh (x body t1 t2)
-                   (conj (≡ expr `(lambda (,x) ,body))
-                         (≡ type `(-> ,t1 ,t2))
-                         (⊢@ `((,x . ,t1) . ,gamma) body t2))))))))
-   1)
+  (check-one-answer
+   (fresh (expr type gamma)
+     (conj
+      (≡ expr `(lambda (x) (var x)))
+      (≡ type `(-> int int))
+      (≡ gamma `())
+      (==> (shape expr `(lambda (,(any)) ,(any)))
+           (fresh (x body t1 t2)
+             (conj (≡ expr `(lambda (,x) ,body))
+                   (≡ type `(-> ,t1 ,t2))
+                   (⊢@ `((,x . ,t1) . ,gamma) body t2)))))))
 
-  (check-equal?
-   (length (run (⊢@ `() `(app (lambda (x) (var x)) (num 5)) `int)))
-   1))
+  (check-one-answer
+   (⊢@ `() `(app (lambda (x) (var x)) (num 5)) `int)))
 
 (define builtin-test-suite
   (test-suite 
@@ -817,8 +776,8 @@
    (time (shape-tests))
    (time (==>-tests))
    (time (operator-tests))
-   (time (eigen-tests))
 
+   (time (eigen-tests))
    (time (list-tests))
    (time (dom-tests))
    (time (fd-tests))
@@ -828,6 +787,9 @@
 
    (time (stlc-tests))))
 
-(module+ main
+(module+ test
   (parameterize ([pretty-print-columns 102])
     (time (void (run-tests builtin-test-suite)))))
+
+(module+ main
+  (require (submod ".." test)))
