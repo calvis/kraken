@@ -10,7 +10,7 @@
 
 (require "variables.rkt")
 
-(struct -eigen cvar ())
+(struct -eigen cvar () #:transparent)
 (define (eigen x) (-eigen "e" x))
 (define eigen? -eigen?)
 
@@ -234,11 +234,49 @@
   (class attribute% 
     (super-new)))
 
+;; =============================================================================
+;; operators
+
+(define operator%
+  (class object%
+    (super-new)))
+
 ;; -----------------------------------------------------------------------------
 ;; associate
 
+;; this CAN'T be made into a state immediately, as the scope won't be
+;; added until later
+
 (define (== x v)
-  (send (new state%) associate x v))
+  (new ==% [x x] [v v]))
+
+(define ==%
+  (class* operator% (printable<%>)
+    (init-field x v [scope '()])
+    (super-new)
+
+    (define/public (custom-print p depth)
+      (display (list (object-name this%) x v) p))
+    (define/public (custom-write p)
+      (write   (list (object-name this%) x v) p))
+    (define/public (custom-display p) 
+      (display (list (object-name this%) x v) p))
+    
+    (define/public (update state)
+      (let ([x (send state walk x)]
+            [v (send state walk v)])
+        (send (send (new state%) associate x v scope)
+              update state)))
+
+    (define/public (combine state)
+      (send (send (new state%) associate x v scope)
+            combine state))
+
+    (define/public (run state)
+      (send state associate x v scope))
+
+    (define/public (add-scope ls)
+      (new this% [x x] [v v] [scope (cons ls scope)]))))
 
 (define (≡ x v) (== x v))
 
@@ -276,7 +314,7 @@
 
     (define/public (add-scope ls)
       (for/fold
-        ([state (new this% [subst subst])])
+        ([state (add-subst (new this%))])
         ([thing store])
         (send state set-stored (send thing add-scope ls))))
 
@@ -323,10 +361,9 @@
     (define/public (associate x v [scope '()])
       (let ([x (walk x)] [v (walk v)])
         (let ([state (unify x v)])
-          ;; x is a var or an eigen
-          ;; v could have vars and eigens in it
           (define-values (e* x*)
-            (partition eigen? (related-to (filter* cvar? (cons x v)) subst)))
+            (partition eigen? (related-to 
+                               (filter* cvar? (cons x v)) subst)))
           (cond
            [(check-scope? e* x* scope) state]
            [else (new fail% [trace `(eigen ,x ,v)])]))))
@@ -426,13 +463,6 @@
             (for/fold ([x* x*]) ([x (car scope)]) (remq x x*))
             (cdr scope)))))
 
-(require (except-in rackunit fail))
-(let ([e (eigen 'e)] [x (var 'x)] [y (var 'y)])
-  (let ([scope (list (list x) (list e) (list y))])
-    (check-true  (check-scope? (list)   (list x) scope))
-    (check-false (check-scope? (list e) (list x) scope))
-    (check-true  (check-scope? (list e) (list y) scope))))
-
 (require racket/set)
 ;; [List-of CVar] Subsitution -> [List-of CVar]
 (define (related-to x* s)
@@ -513,13 +543,6 @@
       (error 'forall "intermediate expression was not void\n ~a" 'bodys))
     ... 
     (send body add-scope (list x ...))))
-
-;; =============================================================================
-;; operators
-
-(define operator%
-  (class object%
-    (super-new)))
 
 ;; -----------------------------------------------------------------------------
 ;; conjunction
@@ -1054,7 +1077,7 @@
 (define ==>%
   (class* operator% (equal<%> printable<%>)
     (super-new)
-    (init-field test consequent [scope '()])
+    (init-field test consequent)
 
     (define/public (custom-print p depth)
       (display (list (object-name this%) test consequent) p))
@@ -1088,7 +1111,9 @@
       (error '==>% "trying to augment: ~a\n" this))
 
     (define/public (add-scope ls)
-      (new this% [test test] [consequent consequent] [scope (cons ls scope)]))))
+      (new this%
+           [test (send test add-scope ls)]
+           [consequent (send consequent add-scope ls)]))))
 
 (define (==> t [c succeed]) 
   (new ==>% 

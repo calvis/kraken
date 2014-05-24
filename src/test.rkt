@@ -135,10 +135,6 @@
    (list (new state% [subst `((,x . ()))])))
 
   (check-equal?
-   (≡ (cdr@ (list 1)) (list))
-   succeed)
-
-  (check-equal?
    (send (new state% [store (list (≡ (cdr@ (list 1)) (list)))])
          update (new state%))
    (new state%)))
@@ -361,8 +357,8 @@
    (run (exists (n1 n2) 
           (+@ n1 n2 1)))
    (run (exists (n1 n2)
-          (disj (conj (≡ n1 0) (≡ n2 1))
-                (conj (≡ n1 1) (≡ n2 0))))))
+          (disj (conj (≡ n2 1) (≡ n1 0))
+                (conj (≡ n2 0) (≡ n1 1))))))
 
   (let ([c1 (+@ x y z)] [c2 (+@ z y x)])
     (check-false (send (send (new state%) set-stored c1)
@@ -400,11 +396,7 @@
 
   (check-equal?
    (run (conj (list/a x) (tree/a x)))
-   (run (conj (tree/a x) (list/a x))))
-
-  (check-equal?
-   (≡ z (tree `(,x (3) ,y)))
-   (new state% [subst `((,z . ,(tree `(,x (3) ,y))))])))
+   (run (conj (tree/a x) (list/a x)))))
 
 (define-dependency-test length-tests
   (operator-tests list-tests fd-tests tree-tests)
@@ -719,12 +711,26 @@
 (define-dependency-test eigen-tests
   (operator-tests)
 
+  (define e (eigen 'e))
+  (let ([scope (list (list x) (list e) (list y))])
+    (check-true  (check-scope? (list)   (list x) scope))
+    (check-false (check-scope? (list e) (list x) scope))
+    (check-true  (check-scope? (list e) (list y) scope))
+
+    (check-equal?
+     (send (new state%) associate e x scope)
+     (new fail%))
+
+    (check-equal?
+     (send (new state%) associate e y scope)
+     (new state% [subst `((,y . ,e))])))
+
   (check-equal? 
    (run (exists (x) (forall (e) (≡ e x))))
    (run fail))
 
   (check-equal?
-   (length (run (forall (e) (exists (x) (≡ e x)))))
+   (length (run (forall (e) (exists (y) (≡ e y)))))
    1)
 
   (check-equal?
