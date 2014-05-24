@@ -2,14 +2,16 @@
 
 (require (for-syntax racket/base syntax/parse))
 (require (rename-in racket/stream [stream-append stream-append-proc]))
+(require racket/class 
+         (except-in racket/match ==)
+         racket/list
+         racket/function
+         racket/pretty)
 
-(require "variables.rkt")
+(require "data.rkt")
 
-(provide (all-from-out "variables.rkt")
+(provide (all-from-out "data.rkt")
          (all-defined-out))
-
-(define-syntax-rule (display/return expr)
-  (let ([result expr]) (display " return:\n") (pretty-print result) expr))
 
 (define-syntax-rule (stream-append s* ... s)
   (let ([last (lambda () s)]
@@ -17,7 +19,8 @@
     (define (loop stream)
       (cond
        [(stream-empty? stream) (last)]
-       [else (stream-cons (stream-first stream) (loop (stream-rest stream)))]))
+       [else (stream-cons (stream-first stream)
+                          (loop (stream-rest stream)))]))
     (loop pre)))
 
 (define (stream-interleave stream)
@@ -38,35 +41,10 @@
   (disj (==> (shape x `t) clause) ...))
 
 ;; =============================================================================
-;; substitution
-
-(define substitution? list?)
-
-;; the empty association list, abbreviated s
-(define empty-s '())
-(define empty-s? null?)
-
-(define (ext-s x v s) (cons `(,x . ,v) s))
-(define (ext-s* p s) (append p s))
-
-(define (size-s s) (length s))
-
-;; =============================================================================
 ;; reification
 
 (define (extend-rs v s)
   `((,v . ,(reify-n v (size-s s))) . ,s))
-
-(define (walk/internal u s)
-  (cond
-   [(and (cvar? u) (assq u s))
-    => (lambda (a) (walk/internal (cdr a) s))]
-   [(pair? u)
-    (cons (walk/internal (car u) s)
-          (walk/internal (cdr u) s))]
-   [(tree? u)
-    (tree (map (curryr walk/internal s) (tree-nodes u)))]
-   [else u]))
 
 (define (reify-s v^ s)
   (define v (walk/internal v^ s))
@@ -81,29 +59,10 @@
    [else s]))
 
 ;; =============================================================================
-;; trees
-
-(struct tree (nodes) #:transparent
-        #:methods gen:custom-write
-        [(define (write-proc x port mode)
-           (display
-            (cons 'tree 
-                  (for/fold ([nodes '()]) ([node (tree-nodes x)])
-                    (cond
-                     [(list? node) (append nodes node)]
-                     [else (append nodes (list '@ node))])))
-            port))])
-
-;; =============================================================================
 ;; constraints and attributes
 
-(require racket/class 
-         (except-in racket/match ==)
-         racket/list
-         racket/function
-         racket/pretty)
-
 (define streamable<%> (interface () augment-stream))
+(define functionable<%> (interface () ->rel))
 
 (define base%
   (class* object% (printable<%> streamable<%>)
@@ -926,8 +885,6 @@
 (define (+@ . n*)
   (new +% [rands n*]))
 
-(define functionable<%> (interface () ->rel))
-
 (define +%
   (class* constraint% (functionable<%>)
     (super-new)
@@ -1242,41 +1199,6 @@
 (define (car@ . rands)
   (new car% [rands rands]))
 
-(define sub1%
-  (class* constraint% (functionable<%>)
-    (super-new)
-
-    (inherit-field rands)
-    (define n (car rands))
-
-    (define/public (->rel v state)
-      (let ([n (send state walk n)])
-        (cond
-         [(object? n)
-          (exists (n^)
-            (let ([state (send n ->rel n^ state)])
-              (and state (send (+@ v 1 n^) run state))))]
-         [else (send (+@ v 1 n) run state)])))
-
-    (define/public (->out state k bad)
-      (let ([n (send state walk n)])
-        (cond
-         [(object? n) 
-          (let ([n (send n ->out state k bad)])
-            (cond
-             [(object? n) (new this% [rands (list n)])]
-             [(number? n) (sub1 n)]
-             [(var? n) (new this% [rands (list n)])]
-             [else (k bad)]))]
-         [(number? n) (sub1 n)]
-         [(var? n) (new this% [rands (list n)])]
-         [else (k bad)])))))
-
-(define sub1@
-  (case-lambda
-   [(n) (new sub1% [rands (list n)])]
-   [(n m) (+@ n 1 m)]))
-
 (define (partial-mixin %)
   (class* % (printable<%>)
     (super-new)
@@ -1319,3 +1241,10 @@
    [(f t) (list t)]
    [(pair? t) (append (filter* f (car t)) (filter* f (cdr t)))]
    [else (list)]))
+
+(define-syntax (query stx)
+  (syntax-parse stx
+    [(query (x) body)
+     #'(run (exists (x) (send body term-query x)))]
+    [(query (x ...) body)
+     #'(run (exists (x ...) (send body term-query (list x ...))))]))
