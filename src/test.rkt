@@ -819,8 +819,7 @@
    (time (dots-tests))
 
    (time (stlc-tests))
-   (time (eigen-tests))
-))
+   (time (eigen-tests))))
 
 (module+ main
   (parameterize ([pretty-print-columns 102])

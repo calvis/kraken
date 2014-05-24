@@ -1,22 +1,12 @@
 #lang racket/base
 
-;; todo: struct@
-(require racket/trace)
-
-(provide (all-defined-out)
-         (all-from-out "variables.rkt"))
-(require (for-syntax racket/base) 
-         (for-syntax syntax/parse))
+(require (for-syntax racket/base syntax/parse))
+(require (rename-in racket/stream [stream-append stream-append-proc]))
 
 (require "variables.rkt")
 
-(struct -eigen cvar () #:transparent)
-(define (eigen x) (-eigen "e" x))
-(define eigen? -eigen?)
-
-(require (rename-in racket/stream [stream-append stream-append-proc]))
-
-(define-syntax-rule (ignore e ...) (void))
+(provide (all-from-out "variables.rkt")
+         (all-defined-out))
 
 (define-syntax-rule (display/return expr)
   (let ([result expr]) (display " return:\n") (pretty-print result) expr))
@@ -244,8 +234,7 @@
 ;; -----------------------------------------------------------------------------
 ;; associate
 
-;; this CAN'T be made into a state immediately, as the scope won't be
-;; added until later
+(define (≡ x v) (== x v))
 
 (define (== x v)
   (new ==% [x x] [v v]))
@@ -265,20 +254,16 @@
     (define/public (update state)
       (let ([x (send state walk x)]
             [v (send state walk v)])
-        (send (send (new state%) associate x v scope)
-              update state)))
+        (send (new state%) associate x v scope)))
 
     (define/public (combine state)
-      (send (send (new state%) associate x v scope)
-            combine state))
+      (send state associate x v scope))
 
     (define/public (run state)
       (send state associate x v scope))
 
     (define/public (add-scope ls)
       (new this% [x x] [v v] [scope (cons ls scope)]))))
-
-(define (≡ x v) (== x v))
 
 ;; =============================================================================
 ;; states
@@ -296,6 +281,13 @@
     (define sexp-me
       (list (object-name this%) (idemize subst) store))
     
+    (define/public (custom-print p depth)
+      (display sexp-me p))
+    (define/public (custom-write p)
+      (write sexp-me p))
+    (define/public (custom-display p) 
+      (display sexp-me p))
+
     (unless (list? subst)
       (error 'state% "subst is not a list\n subst: ~a" subst))
 
@@ -320,13 +312,6 @@
 
     (define/public (walk u)
       (walk/internal u subst))
-
-    (define/public (custom-print p depth)
-      (display sexp-me p))
-    (define/public (custom-write p)
-      (write sexp-me p))
-    (define/public (custom-display p) 
-      (display sexp-me p))
 
     (define/public (remove-stored thing)
       (new this% [subst subst] [store (remove thing store)]))

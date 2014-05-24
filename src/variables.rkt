@@ -37,3 +37,11 @@
 
 (struct any () #:transparent)
 
+;; =============================================================================
+;; eigens
+
+(provide eigen eigen?)
+
+(struct -eigen cvar () #:transparent)
+(define (eigen x) (-eigen "e" x))
+(define eigen? -eigen?)
