@@ -2,7 +2,7 @@
 
 (require (except-in rackunit fail) rackunit/text-ui)
 (require (for-syntax racket/base syntax/parse))
-(require "main.rkt")
+(require "main.rkt" "states.rkt")
 
 (define (bar)
   (printf "====================================================\n"))
@@ -299,6 +299,104 @@
   ;; x is never a pair, so the conj should never be joined
   ;; if succeed triggers joining, this infinite loops
   (check-quick-termination (foo x)))
+
+(define-dependency-test eigen-tests
+  (operator-tests)
+
+  (define e (eigen 'e))
+  (let ([scope (list (list x) (list e) (list y))])
+    (check-true  (check-scope? (list)   (list x) scope))
+    (check-false (check-scope? (list e) (list x) scope))
+    (check-true  (check-scope? (list e) (list y) scope))
+
+    (check-equal?
+     (send (new state%) associate e x scope)
+     (new fail%))
+
+    (check-equal?
+     (send (new state%) associate e y scope)
+     (new state% [subst `((,y . ,e))])))
+
+  (check-equal? 
+   (run (exists (x) (forall (e) (≡ e x))))
+   (run fail))
+
+  (check-equal?
+   (length (run (forall (e) (exists (y) (≡ e y)))))
+   1)
+
+  (check-equal?
+   (length (run (conj (forall (e1) (exists (x1) (≡ e1 x1)))
+                      (forall (e2) (exists (x2) (≡ e2 x2))))))
+   1)
+
+  ;; scope: ((x) (e) (y))
+  (check-equal?
+   (run (exists (x) 
+          (forall (e) 
+            (exists (y) 
+              (conj (≡ e y) (≡ x y))))))
+   (run fail))
+
+  (check-equal?
+   (run (forall (e) (≡ e 5)))
+   (run fail))
+
+  (check-equal?
+   (length (run (forall (e) (exists (x) (≡ (list e) x)))))
+   1)
+
+  (check-equal?
+   (run (forall (e) (exists (x) (≡ (list x) e))))
+   (run fail))
+
+  (check-equal?
+   (run (exists (x)
+          (forall (e) 
+            (exists (y)
+              (conj (≡ (list e) y)
+                    (≡ x y))))))
+   (run fail))
+
+  (check-equal?
+   (run (exists (x)
+          (forall (e)
+            (exists (y)
+              (conj (≡ (list y) x)
+                    (≡ y e))))))
+   (run fail))
+
+  (check-equal?
+   (run (exists (x)
+          (forall (e)
+            (exists (y)
+              (conj (≡ y e)
+                    (≡ (list y) x))))))
+   (run (exists (x)
+          (forall (e)
+            (exists (y)
+              (conj (≡ (list y) x)
+                    (≡ y e)))))))
+
+  (check-equal?
+   (run (forall (e1 e2)
+          (exists (x y)
+            (conj (≡ x e1) (≡ y e2) (≡ x y)))))
+   (run fail))
+
+  (check-equal?
+   (run (exists (x) 
+          (forall (e) 
+            (exists (y) 
+              (≡ (cons e x) (cons x x))))))
+   (run fail))
+
+  (check-equal?
+   (length (run (forall (x y)
+                  (exists (z)
+                    (disj (≡ z (cons x y))
+                          (≡ z (cons y x)))))))
+   2))
 
 (define-dependency-test dom-tests
   (operator-tests)
@@ -708,97 +806,6 @@
    (length (run (⊢@ `() `(app (lambda (x) (var x)) (num 5)) `int)))
    1))
 
-(define-dependency-test eigen-tests
-  (operator-tests)
-
-  (define e (eigen 'e))
-  (let ([scope (list (list x) (list e) (list y))])
-    (check-true  (check-scope? (list)   (list x) scope))
-    (check-false (check-scope? (list e) (list x) scope))
-    (check-true  (check-scope? (list e) (list y) scope))
-
-    (check-equal?
-     (send (new state%) associate e x scope)
-     (new fail%))
-
-    (check-equal?
-     (send (new state%) associate e y scope)
-     (new state% [subst `((,y . ,e))])))
-
-  (check-equal? 
-   (run (exists (x) (forall (e) (≡ e x))))
-   (run fail))
-
-  (check-equal?
-   (length (run (forall (e) (exists (y) (≡ e y)))))
-   1)
-
-  (check-equal?
-   (length (run (conj (forall (e1) (exists (x1) (≡ e1 x1)))
-                      (forall (e2) (exists (x2) (≡ e2 x2))))))
-   1)
-
-  ;; scope: ((x) (e) (y))
-  (check-equal?
-   (run (exists (x) 
-          (forall (e) 
-            (exists (y) 
-              (conj (≡ e y) (≡ x y))))))
-   (run fail))
-
-  (check-equal?
-   (run (forall (e) (≡ e 5)))
-   (run fail))
-
-  (check-equal?
-   (length (run (forall (e) (exists (x) (≡ (list e) x)))))
-   1)
-
-  (check-equal?
-   (run (forall (e) (exists (x) (≡ (list x) e))))
-   (run fail))
-
-  (check-equal?
-   (run (exists (x)
-          (forall (e) 
-            (exists (y)
-              (conj (≡ (list e) y)
-                    (≡ x y))))))
-   (run fail))
-
-  (check-equal?
-   (run (exists (x)
-          (forall (e)
-            (exists (y)
-              (conj (≡ (list y) x)
-                    (≡ y e))))))
-   (run fail))
-
-  (check-equal?
-   (run (exists (x)
-          (forall (e)
-            (exists (y)
-              (conj (≡ y e)
-                    (≡ (list y) x))))))
-   (run (exists (x)
-          (forall (e)
-            (exists (y)
-              (conj (≡ (list y) x)
-                    (≡ y e)))))))
-
-  (check-equal?
-   (run (forall (e1 e2)
-          (exists (x y)
-            (conj (≡ x e1) (≡ y e2) (≡ x y)))))
-   (run fail))
-
-  (check-equal?
-   (run (exists (x) 
-          (forall (e) 
-            (exists (y) 
-              (≡ (cons e x) (cons x x))))))
-   (run fail)))
-
 (define builtin-test-suite
   (test-suite 
    "builtin tests"
@@ -810,6 +817,7 @@
    (time (shape-tests))
    (time (==>-tests))
    (time (operator-tests))
+   (time (eigen-tests))
 
    (time (list-tests))
    (time (dom-tests))
@@ -818,8 +826,7 @@
    (time (length-tests))
    (time (dots-tests))
 
-   (time (stlc-tests))
-   (time (eigen-tests))))
+   (time (stlc-tests))))
 
 (module+ main
   (parameterize ([pretty-print-columns 102])
