@@ -779,7 +779,11 @@
                    (⊢@ `((,x . ,t1) . ,gamma) body t2)))))))
 
   (check-one-answer
-   (⊢@ `() `(app (lambda (x) (var x)) (num 5)) `int)))
+   (⊢@ `() `(app (lambda (x) (var x)) (num 5)) `int))
+
+  (check-equal?
+   (query 2 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int)))
+   '((num _.0) (var x))))
 
 (define builtin-test-suite
   (test-suite 

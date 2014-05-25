@@ -5,6 +5,9 @@ This library implements `#lang kraken`, a functional-logic programming
 language embedded in Racket.  It draws on inspiration from miniKanren
 (see http://minikanren.org) and Racket (see http://racket-lang.org).
 
+Please be advised that despite its miniKanren-like appearence, this
+language is in no way backwards compatible. 
+
 Installing
 ----------
 

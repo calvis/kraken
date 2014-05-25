@@ -18,28 +18,22 @@
 
 (require racket/class
          (except-in racket/match ==))
-(require "../src/main.rkt"
-         "../lib/fd.rkt")
+(require (lib "kraken/src/main.rkt")
+         (lib "kraken/lib/fd.rkt"))
 (provide (all-defined-out))
 
 ;; =============================================================================
 ;; partial-attribute-mixin
 
 (define (partial-attribute-mixin %)
-  (class* % (printable<%>)
+  (class % 
     (super-new)
     (inherit-field rands)
     (init-field [partial #f])
 
-    (define sexp-me 
-      (cons (object-name this%) 
+    (define/override (sexp-me) 
+      (cons (send this get-sexp-rator) 
             (append rands (if partial (list partial) (list)))))
-    (define/override (custom-print p depth)
-      (display sexp-me p))
-    (define/override (custom-write p)
-      (write   sexp-me p))
-    (define/override (custom-display p) 
-      (display sexp-me p))
 
     (define/override (update-rands rands)
       (new this% [rands rands] [partial partial]))

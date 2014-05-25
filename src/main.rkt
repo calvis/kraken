@@ -64,7 +64,9 @@
            (partial-mixin
             (class relation%
               (super-new)
-              (define/public (body args ...) interp))))
+              (define/public (body args ...) interp)
+              (define/override (get-sexp-rator)
+                'name@))))
          (new name% [rands (list args ...)]))]))
 
 

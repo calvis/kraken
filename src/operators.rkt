@@ -84,7 +84,10 @@
       (send state associate x v scope))
 
     (define/public (add-scope ls)
-      (new this% [x x] [v v] [scope (cons ls scope)]))))
+      (new this% [x x] [v v] [scope (cons ls scope)]))
+
+    (define/public (augment-stream stream)
+      (stream-map (lambda (state) (run state)) stream))))
 
 ;; -----------------------------------------------------------------------------
 ;; conjunction
@@ -120,7 +123,11 @@
       (new conj% [clauses new-clauses] [query query]))
     
     (define/public (add-query t)
-      (new this% [clauses clauses] [query t]))))
+      (new this% [clauses clauses] [query t]))
+
+    (define/public (augment-stream stream)
+      (for/fold ([stream stream]) ([thing clauses])
+        (send thing augment-stream stream)))))
 
 (define (conj . clauses)
   (new conj% [clauses clauses]))
@@ -239,7 +246,11 @@
       (send state set-stored this))
 
     (define/public (augment-stream stream)
-      (error '==>% "trying to augment: ~a\n" this))
+      (stream-map (lambda (state)
+                    (cond
+                     [(is-a? state fail%) state]
+                     [else (send consequent run state)]))
+                  (send test augment-stream stream)))
 
     (define/public (add-scope ls)
       (new this%

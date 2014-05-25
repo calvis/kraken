@@ -33,13 +33,16 @@
 
     (define/public (get-rator) this%)
     (define/public (get-rands) rands)
+    (define/public (get-sexp-rator) (object-name this%))
 
+    (define/public (sexp-me)
+      (cons (send this get-sexp-rator) rands))
     (define/public (custom-print p depth)
-      (display (cons (object-name this%) rands) p))
+      (display (sexp-me) p))
     (define/public (custom-write p)
-      (write   (cons (object-name this%) rands) p))
+      (write   (sexp-me) p))
     (define/public (custom-display p) 
-      (display (cons (object-name this%) rands) p))
+      (display (sexp-me) p))
 
     (define/public (update-rands rands)
       (new this% [rands rands] [scope scope]))
@@ -124,7 +127,32 @@
          [(null? t) (== x `())]
          [(and (not (var? x)) (pair? t)) 
           (new fail% [trace this])]
-         [else (shape x t)])))))
+         [else (shape x t)])))
+
+    (define/override (augment-stream stream)
+      (stream-map (lambda (state)
+                    (cond
+                     [(is-a? state fail%) state]
+                     [else
+                      (let loop ([x x] [t t] [state state])
+                        (let ([x (send state walk x)]
+                              [t (send state walk t)])
+                          (cond
+                           [(any? t) state]
+                           [(and (pair? x) (pair? t))
+                            (loop (cdr x) (cdr t)
+                                  (loop (car x) (car t) state))]
+                           [(symbol? t) (send state associate x t)]
+                           [(null? t) (send state associate x `())]
+                           [(and (not (var? x)) (pair? t)) 
+                            (new fail% [trace this])]
+                           [(pair? t)
+                            (let ([a (var 'a)] [d (var 'd)])
+                              (loop d (cdr t)
+                                    (loop a (car t) 
+                                          (send state associate (cons a d) x))))]
+                           [else (error 'shape "augment stream: ~a ~a" x t)])))]))
+                  stream))))
 
 (define (shape x t) (new shape% [rands (list x t)]))
 
@@ -165,17 +193,15 @@
   (new (functionable-constraint% cdr) [rands rands]))
 
 (define (partial-mixin %)
-  (class* % (printable<%>)
+  (class % 
     (super-new)
     (inherit-field rands)
     (init-field [partial #f])
 
-    (define/override (custom-print p depth)
-      (display (list (object-name this%) rands partial) p))
-    (define/override (custom-write p)
-      (write   (list (object-name this%) rands partial) p))
-    (define/override (custom-display p) 
-      (display (list (object-name this%) rands partial) p))
+    (define/override (sexp-me)
+      (if partial
+          `(,(send this get-sexp-rator) ,@rands ,partial)
+          (super sexp-me)))
 
     (define/public (update-partial partial)
       (new this% [rands rands] [partial partial]))
@@ -187,7 +213,11 @@
       (cond
        [(is-a? result disj%)
         (send this update-partial result)]
-       [else result]))))
+       [else result]))
+
+    (define/override (augment-stream stream)
+      (define new-partial (or partial (send this body . rands)))
+      (send new-partial augment-stream stream))))
 
 (define attribute%
   (class* base% (equal<%>)
