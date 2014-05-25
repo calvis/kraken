@@ -664,25 +664,20 @@
    (query (x) (conj (length@ x 3) (dots@ (lambda (v) (≡ v 5)) x)))
    '((5 5 5))))
 
+(define-dependency-test ground-attribute-tests
+  (operator-tests dom-tests)
+
+  (check-run-succeed (symbol@ 'x))
+  (check-run-fail (symbol@ 5))
+
+  (check-run-fail (number@ 'x))
+  (check-run-succeed (number@ 5))
+
+  (check-run-fail
+   (conj (symbol@ x) (number@ x))))
+
 (define-dependency-test stlc-tests
   (operator-tests dots-tests eigen-tests)
-
-  (define (symbol/a x)
-    (define symbol%
-      (class unary-attribute%
-        (super-new)
-        (inherit-field rands)
-        
-        (define/augment (update state)
-          (let ([x (send state walk (car rands))])
-            (cond
-             [(symbol? x) succeed]
-             [(var? x) (new this% [rands (list x)])]
-             [else fail])))))
-    (new symbol% [rands (list x)]))
-
-  (check-run-succeed (symbol/a 'x))
-  (check-run-fail (symbol/a 5))
 
   (define@ (lookup@ gamma x t)
     (==> (shape gamma (cons (any) (any)))
@@ -812,6 +807,7 @@
    (time (tree-tests))
    (time (length-tests))
    (time (dots-tests))
+   (time (ground-attribute-tests))
 
    (time (stlc-tests))))
 

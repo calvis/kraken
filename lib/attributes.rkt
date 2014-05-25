@@ -74,7 +74,7 @@
 (define (tree@ t)
   (new tree% [rands (list t)]))
 
-;; =============================================================================
+;; -----------------------------------------------------------------------------
 ;; list@
 
 (define list%
@@ -90,7 +90,7 @@
 (define (list@ ls)
   (new list% [rands (list ls)]))
 
-;; =============================================================================
+;; -----------------------------------------------------------------------------
 ;; dots@
 
 (define dots%
@@ -103,6 +103,45 @@
 
 (define (dots@ fn ls)
   (new dots% [rands (list ls fn)]))
+
+;; =============================================================================
+;; ground@ 
+
+(define ground%
+  (class unary-attribute% 
+    (super-new)
+    (inherit-field rands)
+    (define/override (equal-to? obj recur?)
+      (and (is-a? obj ground%) (eq? (car rands) (car (send obj get-rands)))))
+    (define/override (merge attr state)
+      (cond
+       [(or (is-a? this (send attr get-rator))
+            (is-a? attr (send this get-rator)))
+        (super merge attr state)]
+       [else (new fail%)]))))
+
+;; -----------------------------------------------------------------------------
+
+(define (ground-type-mixin pred?)
+  (class ground%
+    (super-new)
+    (inherit-field rands)
+    (define/override (get-sexp-rator)
+      (object-name pred?))
+    (define/augment (update state)
+      (let ([x (send state walk (car rands))])
+        (cond
+         [(var? x) (new this% [rands (list x)])]
+         [else (with-handlers ([exn:fail? (lambda (e) (new fail% [trace e]))])
+                 (if (pred? x) succeed fail))])))))
+
+;; -----------------------------------------------------------------------------
+
+(define symbol% (ground-type-mixin symbol?))
+(define number% (ground-type-mixin number?))
+
+(define (symbol@ x) (new symbol% [rands (list x)]))
+(define (number@ x) (new number% [rands (list x)]))
 
 ;; =============================================================================
 ;; length@
@@ -138,11 +177,7 @@
             (== (for/list ([i n]) (var (gensym 'i))) x)]
            [else (conj (tree@ x) (new this% [rands (list x n)]))]))]))
     
-    (define/public (get-value)
-      (cond
-       [(null? (cdr rands))
-        (if (list? x) (length x) (range-dom 0 100))]
-       [else (cadr rands)]))))
+    (define/public (get-value) (cadr rands))))
 
 (define (length@ ls n) 
   (new length% [rands (list ls n)]))
