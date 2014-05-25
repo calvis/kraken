@@ -87,7 +87,8 @@
       (new this% [x x] [v v] [scope (cons ls scope)]))
 
     (define/public (augment-stream stream)
-      (stream-map (lambda (state) (run state)) stream))))
+      (filter-not-fail
+       (stream-map (lambda (state) (run state)) stream)))))
 
 ;; -----------------------------------------------------------------------------
 ;; conjunction
@@ -126,8 +127,9 @@
       (new this% [clauses clauses] [query t]))
 
     (define/public (augment-stream stream)
-      (for/fold ([stream stream]) ([thing clauses])
-        (send thing augment-stream stream)))))
+      (filter-not-fail
+       (for/fold ([stream stream]) ([thing clauses])
+         (send thing augment-stream stream))))))
 
 (define (conj . clauses)
   (new conj% [clauses clauses]))
@@ -170,9 +172,10 @@
       (send state set-stored this))
 
     (define/public (augment-stream stream)
-      (stream-interleave
-       (stream-map (lambda (state) (send state augment-stream stream))
-                   states)))
+      (filter-not-fail
+       (stream-interleave
+        (stream-map (lambda (state) (send state augment-stream stream))
+                    states))))
 
     (define/public (add-scope ls)
       (new disj% [states (map (lambda (ss) (send ss add-scope ls)) states)]))))
@@ -246,11 +249,9 @@
       (send state set-stored this))
 
     (define/public (augment-stream stream)
-      (stream-map (lambda (state)
-                    (cond
-                     [(is-a? state fail%) state]
-                     [else (send consequent run state)]))
-                  (send test augment-stream stream)))
+      (filter-not-fail
+       (stream-map (lambda (state) (send consequent run state))
+                   (filter-not-fail (send test augment-stream stream)))))
 
     (define/public (add-scope ls)
       (new this%

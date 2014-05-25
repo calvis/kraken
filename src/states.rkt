@@ -96,7 +96,7 @@
       (define answer-stream
         (send this augment-stream (list (new state%))))
       (define result
-        (take (stream-filter (compose not (curryr is-a? fail%)) answer-stream) n))
+        (take (filter-not-fail answer-stream) n))
       (if query (map (lambda (state) (send state reify query)) result) result))
 
     (define/public (reify v)
@@ -260,6 +260,9 @@
 
 (define fail (new fail%))
 (define succeed (new state%))
+
+(define (filter-not-fail stream)
+  (stream-filter (compose not (curryr is-a? fail%)) stream))
 
 
 ;; =============================================================================

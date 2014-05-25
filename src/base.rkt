@@ -16,9 +16,15 @@
 
 #lang racket/base
 
-(require racket/class racket/function "interfaces.rkt"
-         racket/stream "states.rkt" "data.rkt" racket/list
-         (except-in racket/match ==) "operators.rkt")
+(require racket/class
+         racket/function
+         racket/stream
+         racket/list
+         (except-in racket/match ==))
+(require "interfaces.rkt"
+         "states.rkt"
+         "data.rkt"
+         "operators.rkt")
 (provide (all-defined-out))
 
 (define base%
@@ -64,29 +70,27 @@
     (define/public (add-scope ls)
       (new this% [rands rands] [scope (cons ls scope)]))
 
-    ;; State Stream -> Stream
+    (define/public (augment-state state)
+      (call/cc 
+       (lambda (k)
+         (let ([rands (map (update-functionable state k) rands)])
+           (cond
+            [(findf (curryr is-a? functionable<%>) rands)
+             (define-values (new-state new-rands)
+               (for/fold ([state state] [rands '()]) ([r rands])
+                 (cond
+                  [(is-a? r functionable<%>)
+                   (let ([out (var 'out)])
+                     (values (send r ->rel out state)
+                             (cons out rands)))]
+                  [else (values state (cons r rands))])))
+             (send (send this update-rands (reverse new-rands))
+                   run new-state)]
+            [else (send this run state)])))))
+
     (define/public (augment-stream stream)
-      (stream-filter
-       (compose not (curryr is-a? fail%))
-       (stream-map 
-        (lambda (state)
-          (call/cc 
-           (lambda (k)
-             (let ([rands (map (update-functionable state k) rands)])
-               (cond
-                [(findf (curryr is-a? functionable<%>) rands)
-                 (define-values (new-state new-rands)
-                   (for/fold ([state state] [rands '()]) ([r rands])
-                     (cond
-                      [(is-a? r functionable<%>)
-                       (let ([out (var 'out)])
-                         (values (send r ->rel out state)
-                                 (cons out rands)))]
-                      [else (values state (cons r rands))])))
-                 (send (send this update-rands (reverse new-rands))
-                       run new-state)]
-                [else (send this run state)])))))
-        stream)))
+      (filter-not-fail       
+       (stream-map (lambda (state) (augment-state state)) stream)))
 
     (define/public (combine state)
       (send state set-stored this))))
@@ -123,36 +127,31 @@
           (send (conj (shape (car x) (car t))
                       (shape (cdr x) (cdr t)))
                 update state)]
-         [(symbol? t) (== x t)]
-         [(null? t) (== x `())]
+         [(symbol? t) (send (== x t) update state)]
+         [(null? t) (send (== x `()) update state)]
          [(and (not (var? x)) (pair? t)) 
           (new fail% [trace this])]
          [else (shape x t)])))
 
-    (define/override (augment-stream stream)
-      (stream-map (lambda (state)
-                    (cond
-                     [(is-a? state fail%) state]
-                     [else
-                      (let loop ([x x] [t t] [state state])
-                        (let ([x (send state walk x)]
-                              [t (send state walk t)])
-                          (cond
-                           [(any? t) state]
-                           [(and (pair? x) (pair? t))
-                            (loop (cdr x) (cdr t)
-                                  (loop (car x) (car t) state))]
-                           [(symbol? t) (send state associate x t)]
-                           [(null? t) (send state associate x `())]
-                           [(and (not (var? x)) (pair? t)) 
-                            (new fail% [trace this])]
-                           [(pair? t)
-                            (let ([a (var 'a)] [d (var 'd)])
-                              (loop d (cdr t)
-                                    (loop a (car t) 
-                                          (send state associate (cons a d) x))))]
-                           [else (error 'shape "augment stream: ~a ~a" x t)])))]))
-                  stream))))
+    (define/override (augment-state state)
+      (let loop ([x x] [t t] [state state])
+        (let ([x (send state walk x)]
+              [t (send state walk t)])
+          (cond
+           [(any? t) state]
+           [(and (pair? x) (pair? t))
+            (loop (cdr x) (cdr t)
+                  (loop (car x) (car t) state))]
+           [(symbol? t) (send state associate x t)]
+           [(null? t) (send state associate x `())]
+           [(and (not (var? x)) (pair? t)) 
+            (new fail% [trace this])]
+           [(pair? t)
+            (let ([a (var 'a)] [d (var 'd)])
+              (loop d (cdr t)
+                    (loop a (car t) 
+                          (send state associate (cons a d) x))))]
+           [else (error 'shape "augment stream: ~a ~a" x t)]))))))
 
 (define (shape x t) (new shape% [rands (list x t)]))
 
