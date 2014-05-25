@@ -136,26 +136,12 @@
     (inherit-field rands)
 
     (define/public (equal-to? obj recur?)
-      (and (or (implementation? 
-                (send obj get-rator)
-                (class->interface this%))
-               (implementation? 
-                this%
-                (class->interface (send obj get-rator))))
-           (eq? (car rands) (car (get-field rands obj)))))
+      (eq? (car rands) (car (get-field rands obj))))
     (define/public (equal-hash-code-of hash-code)
       (+ 1 (hash-code rands)))
     (define/public (equal-secondary-hash-code-of hash-code)
       (apply + (map (lambda (r i) (* (expt 10 i) (hash-code r)))
                     rands (range 0 (length rands)))))))
-
-(define unary-attribute%
-  (class attribute% 
-    (super-new)))
-
-(define binary-attribute%
-  (class attribute% 
-    (super-new)))
 
 ;; -----------------------------------------------------------------------------
 

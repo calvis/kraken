@@ -54,7 +54,7 @@
 ;; tree@
 
 (define tree%
-  (class unary-attribute%
+  (class attribute%
     (super-new)
     (inherit-field rands)
     (define/augride (update state)
@@ -69,7 +69,14 @@
            (apply conj (for/list ([node nodes]) (tree@ node)))
            update state)]
          [(var? t) this]
-         [else fail])))))
+         [else fail])))
+
+    (define/overment (merge obj state)
+      (cond
+       [(or (is-a? obj this%)
+            (is-a? this (send obj get-rator)))
+        (inner (super merge obj state) merge obj state)]
+       [else (new fail%)]))))
 
 (define (tree@ t)
   (new tree% [rands (list t)]))
@@ -78,17 +85,16 @@
 ;; list@
 
 (define list%
-  (partial-attribute-mixin
-   (class tree%
-     (super-new)
-     (define/override (get-sexp-rator) 'list@)
-     (define/public (body ls)
-       (disj (==> (shape ls (list)))
-             (==> (shape ls (cons (any) (any)))
-                  (list@ (cdr@ ls))))))))
+  (class tree%
+    (super-new)
+    (define/override (get-sexp-rator) 'list@)
+    (define/public (body ls)
+      (disj (==> (shape ls (list)))
+            (==> (shape ls (cons (any) (any)))
+                 (list@ (cdr@ ls)))))))
 
 (define (list@ ls)
-  (new list% [rands (list ls)]))
+  (new (partial-attribute-mixin list%) [rands (list ls)]))
 
 ;; -----------------------------------------------------------------------------
 ;; dots@
@@ -96,28 +102,26 @@
 (define dots%
   (class list%
     (super-new)
+    (define/override (get-sexp-rator) 'dots@)
     (define/override (body ls fn)
       (disj (==> (shape ls (list)))
             (==> (shape ls (cons (any) (any)))
                  (conj (fn (car@ ls)) (dots@ fn (cdr@ ls))))))))
 
 (define (dots@ fn ls)
-  (new dots% [rands (list ls fn)]))
+  (new (partial-attribute-mixin dots%) [rands (list ls fn)]))
 
 ;; =============================================================================
 ;; ground@ 
 
 (define ground%
-  (class unary-attribute% 
+  (class attribute% 
     (super-new)
     (inherit-field rands)
-    (define/override (equal-to? obj recur?)
-      (and (is-a? obj ground%) (eq? (car rands) (car (send obj get-rands)))))
-    (define/override (merge attr state)
+    (define/overment (merge obj state)
       (cond
-       [(or (is-a? this (send attr get-rator))
-            (is-a? attr (send this get-rator)))
-        (super merge attr state)]
+       [(or (is-a? obj this%) (is-a? this% (send obj get-rator)))
+        (inner (super merge obj state) merge obj state)]
        [else (new fail%)]))))
 
 ;; -----------------------------------------------------------------------------
@@ -147,12 +151,12 @@
 ;; length@
 
 (define length%
-  (class binary-attribute%
+  (class tree%
     (super-new)
     (inherit-field rands)
     (define x (car rands))
 
-    (define/augment (update state)
+    (define/override (update state)
       (cond
        [(send state get-stored this% x)
         => (lambda (n) (== (cadr rands) n))]
@@ -175,7 +179,7 @@
                   update state)]
            [(number? n)
             (== (for/list ([i n]) (var (gensym 'i))) x)]
-           [else (conj (tree@ x) (new this% [rands (list x n)]))]))]))
+           [else (new this% [rands (list x n)])]))]))
     
     (define/public (get-value) (cadr rands))))
 

@@ -25,7 +25,7 @@
 ;; dom@
 
 (define dom%
-  (class binary-attribute% 
+  (class attribute% 
     (super-new)
 
     (inherit-field rands)
@@ -107,25 +107,25 @@
         (cond
          [(or (var? u) (var? v) (var? w))
           (let ([du (or (send state get-stored dom% u) 
-                      (and (value-dom? u) (range-dom u u))
-                      (range-dom 0 100))]
-              [dv (or (send state get-stored dom% v) 
-                      (and (value-dom? v) (range-dom v v))
-                      (range-dom 0 100))]
-              [dw (or (send state get-stored dom% w) 
-                      (and (value-dom? w) (range-dom w w))
-                      (range-dom 0 100))])
-          (let ([wmin (min-dom dw)] [wmax (max-dom dw)]
-                [umin (min-dom du)] [umax (max-dom du)]
-                [vmin (min-dom dv)] [vmax (max-dom dv)])
-            (let ([new-w-dom (range-dom (+ umin vmin) (+ umax vmax))]
-                  [new-u-dom (range-dom (- wmin vmax) (- wmax vmin))]
-                  [new-v-dom (range-dom (- wmin umax) (- wmax umin))])
-              (conj (+@ u v w)
-                    (send (conj (dom@ w new-w-dom)
-                                (dom@ v new-v-dom)
-                                (dom@ u new-u-dom))
-                          update state)))))]
+                        (and (value-dom? u) (range-dom u u))
+                        (range-dom 0 100))]
+                [dv (or (send state get-stored dom% v) 
+                        (and (value-dom? v) (range-dom v v))
+                        (range-dom 0 100))]
+                [dw (or (send state get-stored dom% w) 
+                        (and (value-dom? w) (range-dom w w))
+                        (range-dom 0 100))])
+            (let ([wmin (min-dom dw)] [wmax (max-dom dw)]
+                  [umin (min-dom du)] [umax (max-dom du)]
+                  [vmin (min-dom dv)] [vmax (max-dom dv)])
+              (let ([new-w-dom (range-dom (+ umin vmin) (+ umax vmax))]
+                    [new-u-dom (range-dom (- wmin vmax) (- wmax vmin))]
+                    [new-v-dom (range-dom (- wmin umax) (- wmax umin))])
+                (conj (+@ u v w)
+                      (send (conj (dom@ w new-w-dom)
+                                  (dom@ v new-v-dom)
+                                  (dom@ u new-u-dom))
+                            update state)))))]
          [(and (number? u) (number? v) (number? w))
           (or (and (= (+ u v) w) (new state%)) 
               (new fail% [trace this]))]
