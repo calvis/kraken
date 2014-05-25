@@ -56,9 +56,7 @@
 (define tree%
   (class unary-attribute%
     (super-new)
-
     (inherit-field rands)
-
     (define/augride (update state)
       (let* ([t (send state walk (car rands))])
         (cond
@@ -83,6 +81,7 @@
   (partial-attribute-mixin
    (class tree%
      (super-new)
+     (define/override (get-sexp-rator) 'list@)
      (define/public (body ls)
        (disj (==> (shape ls (list)))
              (==> (shape ls (cons (any) (any)))

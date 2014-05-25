@@ -95,8 +95,17 @@
       (filter-not-fail       
        (stream-map (lambda (state) (augment-state state)) stream)))
 
+    (define/public (merge obj state)
+      (cond
+       [(is-a? obj this%) (send state set-stored obj)]
+       [else (send state set-stored this)]))
+
     (define/public (combine state)
-      (send state set-stored this))))
+      (cond
+       [(send state has-stored this)
+        => (lambda (this^)
+             (send this merge this^ (send state remove-stored this^)))]
+       [else (send state set-stored this)]))))
 
 (define ((update-functionable state k) r)
   (if (is-a? r functionable<%>) (send r ->out state k) r))
@@ -138,26 +147,11 @@
       (+ 1 (hash-code rands)))
     (define/public (equal-secondary-hash-code-of hash-code)
       (apply + (map (lambda (r i) (* (expt 10 i) (hash-code r)))
-                    rands (range 0 (length rands)))))
-
-    (define/override (combine state)
-      (cond
-       [(send state has-stored this)
-        => (lambda (this^)
-             ;; we have two identical attributes on the same variable,
-             ;; see if they need to merge and take appropriate actions
-             (send this merge this^ (send state remove-stored this^)))]
-       [else (send state set-stored this)]))))
+                    rands (range 0 (length rands)))))))
 
 (define unary-attribute%
   (class attribute% 
-    (super-new)
-
-    (define/public (merge a state)
-      (cond
-       [(implementation? (send a get-rator) (class->interface this%))
-        (send state set-stored a)]
-       [else (send state set-stored this)]))))
+    (super-new)))
 
 (define binary-attribute%
   (class attribute% 

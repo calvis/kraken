@@ -206,7 +206,7 @@
               (≡ (var 'd) (list 2 3))))))
 
 (define-dependency-test disj-tests
-  (associate-tests)
+  (associate-tests conj-tests)
 
   (check-equal?
    (run (disj (≡ x 5)))
@@ -238,7 +238,12 @@
    (query (f g)
           (conj (disj (≡ f 0) (≡ f 1))
                 (disj (≡ g 0) (≡ g 1))))
-   '((0 0) (1 0) (0 1) (1 1))))
+   '((0 0) (1 0) (0 1) (1 1)))
+
+  (check-equal?
+   (run (conj (disj (≡ x 5) (≡ x 6))
+              (disj (≡ x 5) (≡ x 6))))
+   (run (disj (≡ x 5) (≡ x 6)))))
 
 (require racket/engine)
 

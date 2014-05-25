@@ -44,14 +44,14 @@
         (cond
          [(null-dom? x) (new fail% [trace this])]
          [(value-dom? x)
-          (or (and (memv-dom? x d) state)
+          (or (and (memv-dom? x d) succeed)
               (new fail% [trace this]))]
          [(singleton-dom? d)
-          (== x (singleton-element-dom d))]
+          (send (== x (singleton-element-dom d)) update state)]
          [else (new dom% [rands (list x d)])])))
 
     ;; this is the "newer" attr, attr^ was stored before
-    (define/public (merge attr^ state)
+    (define/override (merge attr^ state)
       (define old-d (send attr^ get-value))
       (define new-d (intersection-dom d old-d))
       (cond
