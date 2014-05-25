@@ -84,7 +84,7 @@ Unifies @racket[x] with @racket[v].
 
 @examples[
 #:eval kr-eval
-(query (x) (== x "(╯°□°）╯︵ ┻━┻"))
+(query (x) (≡ x "(╯°□°）╯︵ ┻━┻"))
 ]}
 
 @defproc[(conj [clause statement?] ...) statement?]{
@@ -93,7 +93,7 @@ Performs logical conjunction over @racket[clause]s.
 
 @examples[
 #:eval kr-eval
-(query (x y) (conj (== x y) (== y 5)))
+(query (x y) (conj (≡ x y) (≡ y 5)))
 ]}
 
 @defproc[(disj [clause statement?] ...) statement?]{
@@ -102,7 +102,7 @@ Performs logical disjunction over @racket[clause]s.
 
 @examples[
 #:eval kr-eval
-(query (x y) (disj (== x y) (== y 5)))
+(query (x y) (disj (≡ x y) (≡ y 5)))
 ]}
 
 @defproc[(==> [test statement?] [consequent statement?]) statement?]{
@@ -115,11 +115,11 @@ Performs logical implication.  When @racket[test] is true, the
 @examples[
 #:eval kr-eval
 (query (x y) 
-  (conj (==> (== x y) (== y 5))
-        (== x y)))
+  (conj (==> (≡ x y) (≡ y 5))
+        (≡ x y)))
 (query (x y) 
-  (conj (==> (== x 5) (== y 5))
-        (== x 6)))
+  (conj (==> (≡ x 5) (≡ y 5))
+        (≡ x 6)))
 ]}
 
 
