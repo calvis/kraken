@@ -563,11 +563,11 @@
 
   (check-equal?
    (query 4 (x y) (length@ (tree `(,x ,y)) 1))
-   '((() (_.0)) ((_.0) ())))
+   '((() (lv.0)) ((lv.0) ())))
 
   (check-equal?
    (query (x y) (length@ (tree `(,x ,y)) 2))
-   '((() (_.0 _.1)) ((_.0) (_.1)) ((_.0 _.1) ())))
+   '((() (lv.0 lv.1)) ((lv.0) (lv.1)) ((lv.0 lv.1) ())))
 
   (let ([n1 (var 'n1)]
         [n2 (var 'n2)]
@@ -788,7 +788,7 @@
 
   (check-equal?
    (query 2 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int)))
-   '((num _.0) (var x))))
+   '((num lv.0) (var x))))
 
 (define builtin-test-suite
   (test-suite 

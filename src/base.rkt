@@ -210,6 +210,9 @@
     (super-new)
     (inherit-field rands)
 
+    (define/override (get-sexp-rator) 
+      (object-name prim))
+
     (define/public (->out state k)
       (let ([rands (send state walk (map (update-functionable state k) rands))])
         (cond

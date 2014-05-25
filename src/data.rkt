@@ -49,7 +49,7 @@
 
 ;; defines a normal miniKanren var as a cvar that is printed with "_"
 (struct -var cvar () #:transparent)
-(define (var x) (-var "_" x))
+(define (var x) (-var "lv" x))
 (define (var? x) (-var? x))
 
 ;; =============================================================================

@@ -49,8 +49,17 @@
 ;; operators
 
 (define operator%
-  (class object%
-    (super-new)))
+  (class* object% (printable<%>)
+    (super-new)
+
+    (define/public (sexp-me) #f)
+
+    (define/public (custom-print p depth)
+      (display (sexp-me) p))
+    (define/public (custom-write p)
+      (write   (sexp-me) p))
+    (define/public (custom-display p) 
+      (display (sexp-me) p))))
 
 ;; -----------------------------------------------------------------------------
 ;; associate
@@ -61,17 +70,13 @@
   (new ==% [x x] [v v]))
 
 (define ==%
-  (class* operator% (printable<%>)
+  (class operator%
     (init-field x v [scope '()])
     (super-new)
 
-    (define/public (custom-print p depth)
-      (display (list (object-name this%) x v) p))
-    (define/public (custom-write p)
-      (write   (list (object-name this%) x v) p))
-    (define/public (custom-display p) 
-      (display (list (object-name this%) x v) p))
-    
+    (define/override (sexp-me)
+      (list (object-name this%) x v))
+
     (define/public (update state)
       (let ([x (send state walk x)]
             [v (send state walk v)])
@@ -94,16 +99,12 @@
 ;; conjunction
 
 (define conj%
-  (class* operator% (printable<%>)
+  (class operator%
     (super-new)
     (init-field [clauses '()] [query #f])
     
-    (define/public (custom-print p depth)
-      (display (cons (object-name this%) clauses) p))
-    (define/public (custom-write p)
-      (write   (cons (object-name this%) clauses) p))
-    (define/public (custom-display p) 
-      (display (cons (object-name this%) clauses) p))
+    (define/override (sexp-me)
+      (cons (object-name this%) clauses))
 
     (define/public (run state)
       (define result
@@ -138,16 +139,12 @@
 ;; disjunction
 
 (define disj%
-  (class* operator% (printable<%>)
+  (class operator%
     (init-field [states '()] [ctx #f])
     (super-new)
 
-    (define/public (custom-print p depth)
-      (display (cons (object-name this%) states) p))
-    (define/public (custom-write p)
-      (write   (cons (object-name this%) states) p))
-    (define/public (custom-display p) 
-      (display (cons (object-name this%) states) p))
+    (define/override (sexp-me)
+      (cons (object-name this%) states))
 
     (unless (> (length states) 1)
       (error 'disj% "invalid states: ~a" states))
@@ -156,12 +153,10 @@
       (error 'disj% "invalid states: ~a" states))
 
     (define/public (update state)
-      (define result 
-        (filter (lambda (state) (not (is-a? state fail%)))
-                (map (lambda (ss) (send ss update state))
-                     states)))
+      (define ss (map (lambda (ss) (send ss update state)) states))
+      (define result (filter (lambda (state) (not (is-a? state fail%))) ss))
       (cond
-       [(null? result) fail]
+       [(null? result) (new fail% [trace `(disj% . ,ss)])]
        [(findf (lambda (ss) (send ss trivial?)) result) succeed]
        [(null? (cdr result)) (car result)]
        [else (new disj% [states result])]))
@@ -181,12 +176,10 @@
       (new disj% [states (map (lambda (ss) (send ss add-scope ls)) states)]))))
 
 (define (disj . clauses)
-  (define result 
-    (filter (lambda (state) (not (is-a? state fail%)))
-            (map (lambda (c) (send c run (new state%)))
-                 clauses)))
+  (define ss (map (lambda (c) (send c run (new state%))) clauses))
+  (define result (filter (lambda (state) (not (is-a? state fail%))) ss))
   (cond
-   [(null? result) (new fail% [trace `(disj . ,clauses)])]
+   [(null? result) (new fail% [trace `(disj% . ,ss)])]
    [(findf (lambda (ss) (send ss trivial?)) result) succeed]
    [(null? (cdr result)) (car result)]
    [else (new disj% [states result])]))
@@ -196,11 +189,9 @@
    [(stream-empty? stream) stream]
    [else
     (let ([stream (stream-filter (compose not stream-empty?) stream)])
-      (stream-filter
-       (compose not (curryr is-a? fail%))
-       (stream-append
-        (stream-map stream-first stream)
-        (stream-interleave (stream-map stream-rest stream)))))]))
+      (stream-append
+       (stream-map stream-first stream)
+       (stream-interleave (stream-map stream-rest stream))))]))
 
 (define-syntax-rule (stream-append s* ... s)
   (let ([last (lambda () s)]
@@ -208,24 +199,19 @@
     (define (loop stream)
       (cond
        [(stream-empty? stream) (last)]
-       [else (stream-cons (stream-first stream)
-                          (loop (stream-rest stream)))]))
+       [else (stream-cons (stream-first stream) (loop (stream-rest stream)))]))
     (loop pre)))
 
 ;; -----------------------------------------------------------------------------
 ;; implies
 
 (define ==>%
-  (class* operator% (equal<%> printable<%>)
+  (class* operator% (equal<%>)
     (super-new)
     (init-field test consequent)
 
-    (define/public (custom-print p depth)
-      (display (list (object-name this%) test consequent) p))
-    (define/public (custom-write p)
-      (write   (list (object-name this%) test consequent) p))
-    (define/public (custom-display p) 
-      (display (list (object-name this%) test consequent) p))
+    (define/override (sexp-me)
+      (list (object-name this%) test consequent))
 
     (define/public (equal-to? obj recur?)
       (and (recur? test (get-field test obj))
