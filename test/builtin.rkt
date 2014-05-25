@@ -211,9 +211,9 @@
    (append (run (≡ x 1)) (run (≡ x 2))))
 
   (check-equal?
-   (map (lambda (state) (send state reify (list x y)))
-        (run (conj (disj (≡ x 0) (≡ x 1))
-                   (disj (≡ y 0) (≡ y 1)))))
+   (query (f g)
+          (conj (disj (≡ f 0) (≡ f 1))
+                (disj (≡ g 0) (≡ g 1))))
    '((0 0) (1 0) (0 1) (1 1))))
 
 (require racket/engine)
@@ -279,19 +279,19 @@
    (new state%))
 
   (check-equal?
-   (map (lambda (state) (send state reify z))
-        (run (conj (==> (==> (≡ x 5))
-                        (≡ z 5))
-                   (≡ x 5))))
+   (query (z)
+          (conj (==> (==> (≡ x 5))
+                     (≡ z 5))
+                (≡ x 5)))
    '(5))
 
   (check-equal?
-   (map (lambda (state) (send state reify z))
-        (run (conj (==> (conj (==> (≡ x 5)
-                                   (≡ y 6))
-                              (≡ y 6))
-                        (≡ z 5))
-                   (≡ x 5) (≡ y 6))))
+   (query (z)
+          (conj (==> (conj (==> (≡ x 5)
+                                (≡ y 6))
+                           (≡ y 6))
+                     (≡ z 5))
+                (≡ x 5) (≡ y 6)))
    '(5)))
 
 (define-dependency-test operator-tests
@@ -502,8 +502,7 @@
    (length@ (list 1 2 3) 3))
 
   (check-equal?
-   (map (lambda (state) (send state reify x))
-        (run (length@ (list 1 2 3) x) 2))
+   (query 2 (x) (length@ (list 1 2 3) x))
    '(3))
 
   (let ([answer (run (exists (n1 n2)
@@ -534,13 +533,11 @@
    (length@ (tree `(,x)) 2))
 
   (check-equal?
-   (map (lambda (state) (send state reify (list x y))) 
-        (run (length@ (tree `(,x ,y)) 1) 4))
+   (query 4 (x y) (length@ (tree `(,x ,y)) 1))
    '((() (_.0)) ((_.0) ())))
 
   (check-equal?
-   (map (lambda (state) (send state reify (list x y)))
-        (run (length@ (tree `(,x ,y)) 2)))
+   (query (x y) (length@ (tree `(,x ,y)) 2))
    '((() (_.0 _.1)) ((_.0) (_.1)) ((_.0 _.1) ())))
 
   (let ([n1 (var 'n1)]
@@ -573,27 +570,27 @@
    2)
 
   (check-equal?
-   (map (lambda (state) (send state reify (list x y)))
-        (run (exists (nx ny)
-               (conj (length@ x nx)
-                     (length@ y ny)
-                     (+@ nx ny 0)))))
+   (query (x y)
+          (exists (nx ny)
+            (conj (length@ x nx)
+                  (length@ y ny)
+                  (+@ nx ny 0))))
    '((() ())))
 
   (check-equal?
-   (map (lambda (state) (send state reify (list x y)))
-        (run (exists (n nx ny)
-               (conj (dom@ n (range-dom 0 1))
-                     (length@ x nx)
-                     (length@ y ny)
-                     (+@ nx 1 ny n)))))
+   (query (x y)
+          (exists (n nx ny)
+            (conj (dom@ n (range-dom 0 1))
+                  (length@ x nx)
+                  (length@ y ny)
+                  (+@ nx 1 ny n))))
    '((() ())))
 
   (check-equal?
-   (map (lambda (state) (send state reify (list x y)))
-        (run (exists (n)
-               (conj (length@ (tree `(,x (3) ,y)) n)
-                     (dom@ n (range-dom 0 1))))))
+   (query (x y)
+          (exists (n)
+            (conj (length@ (tree `(,x (3) ,y)) n)
+                  (dom@ n (range-dom 0 1)))))
    '((() ())))
 
   (let ([answer (run (exists (n)
@@ -615,13 +612,15 @@
    (new state% [subst `((,x . 5))]))
 
   (check-equal?
-   (map (lambda (state) (send state reify x))
-        (run (dots@ uw5 (list x)) 1))
+   (query 1 (x) (dots@ uw5 (list x)))
    '(5))
 
   (check-equal?
-   (map (lambda (state) (send state reify x))
-        (run (dots@ (lambda (v) (≡ v 5)) (list x x x)) 1))
+   (query 1 (x) (dots@ (lambda (v) (≡ v 5)) (list x x x)))
+   '(5))
+
+  (check-equal?
+   (query 2 (x) (dots@ (lambda (v) (≡ v 5)) (list x x x)))
    '(5))
 
   (check-equal?
@@ -633,8 +632,7 @@
    (run (dots@ (lambda (v) succeed) x) 1))
 
   (check-equal? 
-   (map (lambda (state) (send state reify x))
-        (run (conj (length@ x 3) (dots@ (lambda (v) (≡ v 5)) x))))
+   (query (x) (conj (length@ x 3) (dots@ (lambda (v) (≡ v 5)) x)))
    '((5 5 5))))
 
 (define-dependency-test stlc-tests

@@ -29,10 +29,10 @@
 
 (define-syntax (query stx)
   (syntax-parse stx
-    [(query (x) body)
-     #'(run (exists (x) (send body term-query x)))]
-    [(query (x ...) body)
-     #'(run (exists (x ...) (send body term-query (list x ...))))]))
+    [(query (~optional n #:defaults ([n #'#f])) (x:id) body:expr)
+     #'(run (exists (x) (send (conj body) add-query x)) n)]
+    [(query (~optional n #:defaults ([n #'#f])) (x:id ...) body:expr)
+     #'(run (exists (x ...) (send (conj body) add-query (list x ...))) n)]))
 
 (define-syntax (define@ stx)
   (syntax-parse stx

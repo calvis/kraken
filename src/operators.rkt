@@ -76,7 +76,7 @@
 (define conj%
   (class* operator% (printable<%>)
     (super-new)
-    (init-field [clauses '()])
+    (init-field [clauses '()] [query #f])
     
     (define/public (custom-print p depth)
       (display (cons (object-name this%) clauses) p))
@@ -86,8 +86,10 @@
       (display (cons (object-name this%) clauses) p))
 
     (define/public (run state)
-      (for/fold ([state state]) ([thing clauses])
-        (send thing run state)))
+      (define result
+        (for/fold ([state state]) ([thing clauses])
+          (send thing run state)))
+      (if query (send result add-query query) result))
     
     (define/public (combine state)
       (for/fold ([state state]) ([thing clauses])
@@ -99,7 +101,10 @@
     (define/public (add-scope ls)
       (define new-clauses 
         (map (lambda (thing) (send thing add-scope ls)) clauses))
-      (new conj% [clauses new-clauses]))))
+      (new conj% [clauses new-clauses] [query query]))
+    
+    (define/public (add-query t)
+      (new this% [clauses clauses] [query t]))))
 
 (define (conj . clauses)
   (new conj% [clauses clauses]))

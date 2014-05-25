@@ -15,7 +15,7 @@
   (class* object% (equal<%> printable<%>)
     (super-new)
 
-    (init-field [subst '()] [store '()])
+    (init-field [subst '()] [store '()] [query #f])
 
     (define (idemize subst)
       (map (lambda (p) (list (car p) (walk/internal (cdr p) subst))) subst))
@@ -79,7 +79,9 @@
                      (take (stream-rest stream) (and n (sub1 n))))]))
       (define answer-stream
         (send this augment-stream (list (new state%))))
-      (take (stream-filter (compose not (curryr is-a? fail%)) answer-stream) n))
+      (define result
+        (take (stream-filter (compose not (curryr is-a? fail%)) answer-stream) n))
+      (if query (map (lambda (state) (send state reify query)) result) result))
 
     (define/public (reify v)
       (let ([v (walk v)])
@@ -170,7 +172,10 @@
     (define/public (trivial?)
       (and (null? subst) (null? store)))
 
-    (define/public (fail?) #f)))
+    (define/public (fail?) #f)
+
+    (define/public (add-query query)
+      (new this% [subst subst] [store store] [query query]))))
 
 ;; check-scope : 
 ;;   [List-of EigenVar] [List-of CVar] [List-of [List-of CVar]] -> Boolean
