@@ -51,17 +51,17 @@ variable.
 @defproc[(run [stmt statement?] [num number? #f]) (list-of state?)]{
 
 Evaluates the logical meaning of @racket[stmt], and returns the first
-@racket[num] different possible satisfying states (or all satisfying
-states if no number is given).}
+@racket[num] different possible satisfying @racket[state%]s (or all
+of them if no number is given).}
 
 @defform[(query maybe-num (x ...) side-effect-expr ... stmt)
          #:contracts ([side-effect-expr void?]
                       [stmt statement?])]{
 
 Combines @racket[exists] and @racket[run] to automatically reify each
-@racket[x] in the states resulting from running @racket[stmt].  If it
-is supplied, @racket[maybe-num] is passed as the second argument to
-@racket[run]. }
+@racket[x] in the @racket[state%]s resulting from running
+@racket[stmt].  If it is supplied, @racket[maybe-num] is passed as the
+second argument to @racket[run]. }
 
 @section{Operators} 
 
