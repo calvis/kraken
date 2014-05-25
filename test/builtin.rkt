@@ -509,15 +509,15 @@
 
   (check-equal?
    (list@ x)
-   (tree/a x))
+   (tree@ x))
 
   (check-equal?
-   (run (conj (list@ x) (tree/a x)))
+   (run (conj (list@ x) (tree@ x)))
    (run (list@ x)))
 
   (check-equal?
-   (run (conj (list@ x) (tree/a x)))
-   (run (conj (tree/a x) (list@ x)))))
+   (run (conj (list@ x) (tree@ x)))
+   (run (conj (tree@ x) (list@ x)))))
 
 (define-dependency-test length-tests
   (operator-tests list-tests fd-tests tree-tests)
@@ -648,11 +648,11 @@
    '(5))
 
   (check-equal?
-   (tree/a x)
+   (tree@ x)
    (dots@ (lambda (v) succeed) x))
 
   (check-equal?
-   (run (conj (tree/a x) (dots@ (lambda (v) succeed) x)) 1)
+   (run (conj (tree@ x) (dots@ (lambda (v) succeed) x)) 1)
    (run (dots@ (lambda (v) succeed) x) 1))
 
   (check-equal? 

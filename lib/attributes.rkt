@@ -68,12 +68,12 @@
          [(tree? t)
           (match-define (tree nodes) t)
           (send
-           (apply conj (for/list ([node nodes]) (tree/a node)))
+           (apply conj (for/list ([node nodes]) (tree@ node)))
            update state)]
          [(var? t) this]
          [else fail])))))
 
-(define (tree/a t)
+(define (tree@ t)
   (new tree% [rands (list t)]))
 
 ;; =============================================================================
@@ -137,7 +137,7 @@
                   update state)]
            [(number? n)
             (== (for/list ([i n]) (var (gensym 'i))) x)]
-           [else (conj (tree/a x) (new this% [rands (list x n)]))]))]))
+           [else (conj (tree@ x) (new this% [rands (list x n)]))]))]))
     
     (define/public (get-value)
       (cond
