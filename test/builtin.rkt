@@ -11,6 +11,12 @@
 ;; =============================================================================
 ;; testing facilities
 
+(provide check-quick-termination
+         check-long-termination
+         check-one-answer
+         check-run-succeed
+         check-run-fail)
+
 (define finished (make-parameter '()))
 
 (define-syntax-rule (define-dependency-test name (dependencies ...) tests ...)
@@ -37,6 +43,8 @@
 
 (define-syntax-rule (check-quick-termination expr)
   (check-termination-macro 50 expr))
+(define-syntax-rule (check-long-termination expr)
+  (check-termination-macro 10000 expr))
 
 (define-simple-check (check-one-answer expr)
   (= 1 (length (run expr 2))))
