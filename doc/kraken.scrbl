@@ -13,38 +13,31 @@
 
 @section{States}
 
-@defclass[state% object% ()]{
-Encapsulates information about logical statements.
-@defconstructor[([subst list? '()] 
-                 [store list? '()]
-                 [scope list? '()])]{
+@defclass[state% object% ()]{ 
 
-Each @racket[state%] contains a substitution @racket[subst] that maps
-variables to values they have been unified with, and a @racket[store]
-that contains statements that are currently in play.  
-
-The @racket[scope] argument is always @racket[null] unless the
-@racket[state%] instance has been wrapped in one of the forms in the
-following section.}}
+Encapsulates information about logical statements.  Each
+@racket[state%] contains a substitution that maps variables to values
+they have been unified with, and a @racket[store] that contains
+statements that are currently in play.}
 
 @section[#:tag "vars"]{Variables}
 
 @defform[(exists (x ...) side-effect-expr ... stmt)
          #:contracts ([side-effect-expr void?]
-                      [stmt statement?])]
+                      [stmt statement?])]{
 
 Introduces each @racket[x] as a new lexically-scoped (existential)
 logic variable, evaluates each @racket[side-effect-expr] and discards
 their result.  Then, it adds each @racket[x] to the scope of
-@racket[stmt] and returns it.
+@racket[stmt] and returns it.}
 
 @defform[(forall (e ...) side-effect-expr ... stmt)
          #:contracts ([side-effect-expr void?]
-                      [stmt statement?])]
+                      [stmt statement?])]{
 
 Identical to @racket[exists] except it introduces each @racket[e] as a
 new lexically-scoped universal quantification (skolemization)
-variable.
+variable.}
 
 @section[#:tag "eval"]{Evaluation}
 

@@ -27,6 +27,9 @@
          "operators.rkt")
 (provide (all-defined-out))
 
+;; =============================================================================
+;; Base is a (new base% [rands [List-of Value]])
+
 (define base%
   (class* object% (printable<%> 
                    streamable<%>
@@ -98,19 +101,69 @@
 (define ((update-functionable state k) r)
   (if (is-a? r functionable<%>) (send r ->out state k) r))
 
+;; -----------------------------------------------------------------------------
+
 (define relation% 
   (class* base% (equal<%>)
     (super-new)
     (inherit-field rands)
 
     (define/public (equal-to? obj recur?)
-      (and (= (length rands) (length (get-field rands obj)))
+      (and (is-a? obj this%)
+           (is-a? this (send obj get-rator))
+           (= (length rands) (length (get-field rands obj)))
            (andmap recur? rands (get-field rands obj))))
     (define/public (equal-hash-code-of hash-code)
       (+ 1 (hash-code rands)))
     (define/public (equal-secondary-hash-code-of hash-code)
       (apply + (map (lambda (r i) (* (expt 10 i) (hash-code r)))
                     rands (range 0 (length rands)))))))
+
+;; -----------------------------------------------------------------------------
+
+(define attribute%
+  (class* base% (equal<%>)
+    (super-new)
+    (inherit-field rands)
+
+    (define/public (equal-to? obj recur?)
+      (and (or (implementation? 
+                (send obj get-rator)
+                (class->interface this%))
+               (implementation? 
+                this%
+                (class->interface (send obj get-rator))))
+           (eq? (car rands) (car (get-field rands obj)))))
+    (define/public (equal-hash-code-of hash-code)
+      (+ 1 (hash-code rands)))
+    (define/public (equal-secondary-hash-code-of hash-code)
+      (apply + (map (lambda (r i) (* (expt 10 i) (hash-code r)))
+                    rands (range 0 (length rands)))))
+
+    (define/override (combine state)
+      (cond
+       [(send state has-stored this)
+        => (lambda (this^)
+             ;; we have two identical attributes on the same variable,
+             ;; see if they need to merge and take appropriate actions
+             (send this merge this^ (send state remove-stored this^)))]
+       [else (send state set-stored this)]))))
+
+(define unary-attribute%
+  (class attribute% 
+    (super-new)
+
+    (define/public (merge a state)
+      (cond
+       [(implementation? (send a get-rator) (class->interface this%))
+        (send state set-stored a)]
+       [else (send state set-stored this)]))))
+
+(define binary-attribute%
+  (class attribute% 
+    (super-new)))
+
+;; -----------------------------------------------------------------------------
 
 (define shape%
   (class relation%
@@ -218,44 +271,3 @@
       (define new-partial (or partial (send this body . rands)))
       (send new-partial augment-stream stream))))
 
-(define attribute%
-  (class* base% (equal<%>)
-    (super-new)
-    (inherit-field rands)
-
-    (define/public (equal-to? obj recur?)
-      (and (or (implementation? 
-                (send obj get-rator)
-                (class->interface this%))
-               (implementation? 
-                this%
-                (class->interface (send obj get-rator))))
-           (eq? (car rands) (car (get-field rands obj)))))
-    (define/public (equal-hash-code-of hash-code)
-      (+ 1 (hash-code rands)))
-    (define/public (equal-secondary-hash-code-of hash-code)
-      (apply + (map (lambda (r i) (* (expt 10 i) (hash-code r)))
-                    rands (range 0 (length rands)))))
-
-    (define/override (combine state)
-      (cond
-       [(send state has-stored this)
-        => (lambda (this^)
-             ;; we have two identical attributes on the same variable,
-             ;; see if they need to merge and take appropriate actions
-             (send this merge this^ (send state remove-stored this^)))]
-       [else (send state set-stored this)]))))
-
-(define unary-attribute%
-  (class attribute% 
-    (super-new)
-
-    (define/public (merge a state)
-      (cond
-       [(implementation? (send a get-rator) (class->interface this%))
-        (send state set-stored a)]
-       [else (send state set-stored this)]))))
-
-(define binary-attribute%
-  (class attribute% 
-    (super-new)))
