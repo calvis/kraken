@@ -2,4 +2,9 @@
 
 (define version "0.0")
 (define collection "kraken")
-(define test-omit-paths (list "info.rkt"))
+(define test-omit-paths 
+  (list "info.rkt" "lang/main.rkt" "main.rkt"))
+(define scribblings 
+  (list '("scribblings/kraken.scrbl" ())))
+(define deps
+  (list "base" "rackunit-lib" "scribble-lib"))

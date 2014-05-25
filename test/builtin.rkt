@@ -1,10 +1,9 @@
-#lang racket
+#lang racket/base
 
-(require (except-in rackunit fail) rackunit/text-ui)
+(require (except-in rackunit fail) rackunit/text-ui racket/format
+         racket/class racket/pretty)
 (require (for-syntax racket/base syntax/parse))
-(require (lib "kraken/src/main.rkt")
-         (lib "kraken/lib/fd.rkt")
-         (lib "kraken/lib/attributes.rkt"))
+(require "../main.rkt")
 
 (define (bar)
   (printf "====================================================\n"))
@@ -88,7 +87,7 @@
 
   (check-equal?
    (run succeed)
-   (list empty-state))
+   (list (new state%)))
 
   (define (foo x) (new base% [rands (list x)]))
   (check-false (send (new state%) has-stored (foo 5)))
@@ -137,9 +136,8 @@
    (run (≡ (cons 1 2) x))
    (run (≡ x (cons 1 2))))
 
-  (check-equal?
-   (run (≡ '() '()))
-   (list empty-state))
+  (check-run-succeed
+   (≡ '() '()))
 
   (check-equal? 
    (run (≡ x '()))
@@ -213,14 +211,10 @@
    (append (run (≡ x 1)) (run (≡ x 2))))
 
   (check-equal?
-   (map
-    (lambda (state) (send state reify (list x y)))
-    (run (conj (disj (≡ x 0) (≡ x 1))
-               (disj (≡ y 0) (≡ y 1)))))
-   '((0 0)
-     (1 0)
-     (0 1)
-     (1 1))))
+   (map (lambda (state) (send state reify (list x y)))
+        (run (conj (disj (≡ x 0) (≡ x 1))
+                   (disj (≡ y 0) (≡ y 1)))))
+   '((0 0) (1 0) (0 1) (1 1))))
 
 (require racket/engine)
 

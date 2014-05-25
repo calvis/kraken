@@ -7,6 +7,29 @@
 (provide (except-out (all-defined-out) stream-append))
 
 ;; =============================================================================
+;; existentials
+
+(define-syntax-rule (exists (x ...) bodys ... body)
+  (let ([x (var 'x)] ...)
+    (unless (void? bodys)
+      (error 'exists "not void\n expression: ~a" 'bodys))
+    ... 
+    (send body add-scope (list x ...))))
+
+(define-syntax-rule (fresh (x ...) body ...)
+  (exists (x ...) body ...))
+
+;; =============================================================================
+;; universals
+
+(define-syntax-rule (forall (x ...) bodys ... body)
+  (let ([x (eigen 'x)] ...) 
+    (unless (void? bodys)
+      (error 'forall "intermediate expression was not void\n ~a" 'bodys))
+    ... 
+    (send body add-scope (list x ...))))
+
+;; =============================================================================
 ;; operators
 
 (define operator%
@@ -157,29 +180,6 @@
        [else (stream-cons (stream-first stream)
                           (loop (stream-rest stream)))]))
     (loop pre)))
-
-;; =============================================================================
-;; existentials
-
-(define-syntax-rule (exists (x ...) bodys ... body)
-  (let ([x (var 'x)] ...)
-    (unless (void? bodys)
-      (error 'exists "not void\n expression: ~a" 'bodys))
-    ... 
-    (send body add-scope (list x ...))))
-
-(define-syntax-rule (fresh (x ...) body ...)
-  (exists (x ...) body ...))
-
-;; =============================================================================
-;; universals
-
-(define-syntax-rule (forall (x ...) bodys ... body)
-  (let ([x (eigen 'x)] ...) 
-    (unless (void? bodys)
-      (error 'forall "intermediate expression was not void\n ~a" 'bodys))
-    ... 
-    (send body add-scope (list x ...))))
 
 ;; -----------------------------------------------------------------------------
 ;; implies
