@@ -665,7 +665,7 @@
    '((5 5 5))))
 
 (define-dependency-test stlc-tests
-  (operator-tests dots-tests)
+  (operator-tests dots-tests eigen-tests)
 
   (define (symbol/a x)
     (define symbol%
@@ -788,7 +788,10 @@
 
   (check-equal?
    (query 2 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int)))
-   '((num lv.0) (var x))))
+   '((num lv.0) (var x)))
+
+  (check-run-succeed
+   (forall (e) (⊢@ `() `(num ,e) `int))))
 
 (define builtin-test-suite
   (test-suite 
