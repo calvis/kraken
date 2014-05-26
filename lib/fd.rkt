@@ -132,8 +132,7 @@
                                   (dom@ u new-u-dom))
                             update state)))))]
          [(and (number? u) (number? v) (number? w))
-          (or (and (= (+ u v) w) (new state%)) 
-              (new fail% [trace this]))]
+          (if (= (+ u v) w) (new state%) (new fail% [trace this]))]
          [else (new fail% [trace this])])))
 
     ;; (+@ n*) = out
@@ -348,7 +347,7 @@
 (define (copy-before-dom pred dom)
   (cond
    [(null? dom) '()]
-   [(let ((intvl (car dom)))
+   [(let ([intvl (car dom)])
       (and (pred (cdr intvl)) intvl))
     => (lambda (intvl) (copy-before-interval pred intvl))]
    [else (cons (car dom) (copy-before-dom pred (cdr dom)))]))

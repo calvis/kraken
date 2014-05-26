@@ -691,7 +691,7 @@
     (==> (shape gamma (cons (any) (any)))
          (disj
           (≡ (car@ gamma) `(,x . ,t))
-          (fresh (y s)
+          (exists (y s)
             (conj (≡ (car@ gamma) `(,y . ,s))
                   (lookup@ (cdr@ gamma) x t))))))
   
@@ -724,12 +724,12 @@
       [(num ,(any)) (≡ type `int)]
       [(var ,(any)) (lookup@ gamma (car@ (cdr@ expr)) type)]
       [(lambda (,(any)) ,(any))
-       (fresh (x body t1 t2)
+       (exists (x body t1 t2)
          (conj (≡ expr `(lambda (,x) ,body))
                (≡ type `(-> ,t1 ,t2))
                (⊢@ `((,x . ,t1) . ,gamma) body t2)))]
       [(app ,(any) ,(any))
-       (fresh (fn arg t1)
+       (exists (fn arg t1)
          (conj (≡ expr `(app ,fn ,arg))
                (⊢@ gamma fn `(-> ,t1 ,type))
                (⊢@ gamma arg t1)))]))
@@ -760,28 +760,28 @@
 
   (check-one-answer
    (==> (shape `(app (lambda (x) (var x)) (num 5)) `(app ,(any) ,(any)))
-        (fresh (t1)
+        (exists (t1)
           (conj (⊢@ `() `(lambda (x) (var x)) `(-> ,t1 int))
                 (⊢@ `() `(num 5) t1)))))
 
   (check-one-answer
-   (fresh (body)
+   (exists (body)
      (conj (== body `(var x))
            (⊢@ `() `(lambda (x) ,body) `(-> int int)))))
 
   (check-one-answer
-   (fresh (fn)
+   (exists (fn)
      (conj (== fn `(lambda (x) (var x)))
            (⊢@ `() fn `(-> int int)))))
 
   (check-one-answer
-   (fresh (expr type gamma)
+   (exists (expr type gamma)
      (conj
       (≡ expr `(lambda (x) (var x)))
       (≡ type `(-> int int))
       (≡ gamma `())
       (==> (shape expr `(lambda (,(any)) ,(any)))
-           (fresh (x body t1 t2)
+           (exists (x body t1 t2)
              (conj (≡ expr `(lambda (,x) ,body))
                    (≡ type `(-> ,t1 ,t2))
                    (⊢@ `((,x . ,t1) . ,gamma) body t2)))))))
