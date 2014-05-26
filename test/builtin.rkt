@@ -841,10 +841,10 @@
   (bar)
   (let ([body (var 'body)])
     (let ([state (new state%)])
-      (let ([c (⊢@ `((x1 . int)) x `int)])
+      (let ([c (⊢@ `() x `int)])
         (check-quick-termination
-         (send (send c update state) augment-stream (list state))))))
-
+         (send c augment-stream (list state))))))
+  
   (bar)
   (check-quick-termination
    (run (⊢@ `() x `int) 1))
