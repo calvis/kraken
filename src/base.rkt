@@ -316,8 +316,10 @@
          [(ormap (lambda (r) (or (var? r) (object? r))) rands) 
           (new this% [rands rands])]
          [else 
-          (with-handlers ([exn:fail? (lambda (e) (k (new fail% [trace e])))])
-                         (apply prim rands))])))
+          (apply prim rands)
+          #;
+          (with-handlers ([exn:fail? (lambda (e) (k (new fail% [trace (object-name e)])))])
+            )])))
 
     (define/public (->rel v state)
       (send (new this% [rands (append rands (list v))]) run state))
@@ -329,8 +331,11 @@
           (new this% [rands rands])]
          [else 
           (define rrands (reverse rands))
-          (with-handlers ([exn:fail? (lambda (e) (new fail% [trace e]))])
-            (== (apply prim (reverse (cdr rrands))) (car rrands)))])))))
+          #;
+          (with-handlers ([exn:fail? (lambda (e) (new fail% [trace (object-name e)]))])
+            )
+          (== (apply prim (reverse (cdr rrands)))
+              (car rrands))])))))
 
 (define (car@ . rands)
   (new (functionable-constraint% car) [rands rands]))

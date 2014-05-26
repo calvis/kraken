@@ -16,11 +16,11 @@
 
 #lang racket/base 
 
-(require racket/class racket/function)
-(require (rename-in racket/stream [stream-append stream-append-proc]))
+(require racket/class racket/function racket/list racket/pretty
+         racket/stream)
 (require "states.rkt" "data.rkt")
 
-(provide (except-out (all-defined-out) stream-append))
+(provide (all-defined-out))
 
 ;; =============================================================================
 ;; existentials
@@ -92,8 +92,7 @@
       (new this% [x x] [v v] [scope (cons ls scope)]))
 
     (define/public (augment-stream stream)
-      (filter-not-fail
-       (stream-map (lambda (state) (run state)) stream)))))
+      (filter-not-fail (stream-map (lambda (state) (run state)) stream)))))
 
 ;; -----------------------------------------------------------------------------
 ;; conjunction
@@ -128,9 +127,18 @@
       (new this% [clauses clauses] [query t]))
 
     (define/public (augment-stream stream)
-      (filter-not-fail
-       (for/fold ([stream stream]) ([thing clauses])
-         (send thing augment-stream stream))))))
+      (let loop ([stream stream])
+        (cond
+         [(stream-empty? stream) stream]
+         [else
+          (define state (stream-first stream))
+          (let loop2 ([states clauses])
+            (cond 
+             [(null? states) (loop (stream-rest stream))]
+             [else (stream-append
+                    (send (send (car states) update state)
+                          augment-stream (list state))
+                    (loop2 (cdr states)))]))])))))
 
 (define (conj . clauses)
   (new conj% [clauses clauses]))
@@ -139,25 +147,31 @@
 ;; disjunction
 
 (define disj%
-  (class operator%
+  (class* operator% (equal<%>)
     (init-field [states '()] [ctx #f])
     (super-new)
 
     (define/override (sexp-me)
       (cons (object-name this%) states))
 
-    (unless (> (length states) 1)
-      (error 'disj% "invalid states: ~a" states))
-
-    (unless (andmap (lambda (ss) (is-a? ss state%)) states)
-      (error 'disj% "invalid states: ~a" states))
+    (define/public (equal-to? obj recur?)
+      (and (= (length states) (length (get-field states obj)))
+           (andmap recur? states (get-field states obj))))
+    (define/public (equal-hash-code-of hash-code)
+      (+ 1 (hash-code states)))
+    (define/public (equal-secondary-hash-code-of hash-code)
+      (apply + (map (lambda (r i) (* (expt 10 i) (hash-code r)))
+                    states (range 0 (length states)))))
 
     (define/public (update state)
       (define ss (map (lambda (ss) (send ss update state)) states))
       (define result (filter (lambda (state) (not (is-a? state fail%))) ss))
       (cond
        [(null? result) (new fail% [trace `(disj% . ,ss)])]
-       [(findf (lambda (ss) (send ss trivial?)) result) succeed]
+       [(findf (lambda (ss) (and (is-a? ss state%)
+                                 (send ss trivial?)))
+               result) 
+        succeed]
        [(null? (cdr result)) (car result)]
        [else (new disj% [states result])]))
 
@@ -167,40 +181,26 @@
       (send state set-stored this))
 
     (define/public (augment-stream stream)
-      (filter-not-fail
-       (stream-interleave
-        (stream-map (lambda (state) (send state augment-stream stream))
-                    states))))
+      (stream-interleave
+       (map (lambda (state) (send state augment-stream stream))
+            states)))
 
     (define/public (add-scope ls)
       (new disj% [states (map (lambda (ss) (send ss add-scope ls)) states)]))))
 
 (define (disj . clauses)
-  (define ss (map (lambda (c) (send c run (new state%))) clauses))
-  (define result (filter (lambda (state) (not (is-a? state fail%))) ss))
-  (cond
-   [(null? result) (new fail% [trace `(disj% . ,ss)])]
-   [(findf (lambda (ss) (send ss trivial?)) result) succeed]
-   [(null? (cdr result)) (car result)]
-   [else (new disj% [states result])]))
+  (new disj% [states clauses]))
 
-(define (stream-interleave stream)
-  (cond
-   [(stream-empty? stream) stream]
-   [else
-    (let ([stream (stream-filter (compose not stream-empty?) stream)])
-      (stream-append
-       (stream-map stream-first stream)
-       (stream-interleave (stream-map stream-rest stream))))]))
-
-(define-syntax-rule (stream-append s* ... s)
-  (let ([last (lambda () s)]
-        [pre (stream-append-proc s* ...)])
-    (define (loop stream)
-      (cond
-       [(stream-empty? stream) (last)]
-       [else (stream-cons (stream-first stream) (loop (stream-rest stream)))]))
-    (loop pre)))
+(define (stream-interleave ls)
+  (let ([ls (filter (compose not stream-empty?) ls)])
+    (cond
+     [(null? ls) empty-stream]
+     [else
+      (let loop ([ls^ ls])
+        (cond
+         [(null? ls^) (stream-interleave (map stream-rest ls))]
+         [else (stream-cons (stream-first (car ls^))
+                            (loop (cdr ls^)))]))])))
 
 ;; -----------------------------------------------------------------------------
 ;; implies
@@ -235,9 +235,21 @@
       (send state set-stored this))
 
     (define/public (augment-stream stream)
-      (filter-not-fail
-       (stream-map (lambda (state) (send consequent run state))
-                   (filter-not-fail (send test augment-stream stream)))))
+      (define stream^ (filter-not-fail (send test augment-stream stream)))
+      (cond
+       [(stream-empty? stream^) stream^]
+       [else (filter-not-fail 
+              (let loop ([stream stream])
+                (cond
+                 [(stream-empty? stream) stream]
+                 [else
+                  (define state (stream-first stream))
+                  (pretty-print consequent)
+                  (pretty-print state)
+                  (stream-append
+                   (send (send consequent update state)
+                         augment-stream (list state))
+                   (loop (stream-rest stream)))])))]))
 
     (define/public (add-scope ls)
       (new this%
@@ -248,3 +260,59 @@
   (new ==>% 
        [test (send t run (new state%))]
        [consequent c]))
+
+;; -----------------------------------------------------------------------------
+;; not
+
+(define not%
+  (class* operator% (equal<%>)
+    (super-new)
+    (init-field stmt)
+
+    (define/override (sexp-me)
+      (list (object-name this%) stmt))
+
+    (define/public (equal-to? obj recur?)
+      (recur? stmt (get-field stmt obj)))
+    (define/public (equal-hash-code-of hash-code)
+      (+ 1 (hash-code stmt)))
+    (define/public (equal-secondary-hash-code-of hash-code)
+      (hash-code stmt))
+
+    (define/public (update state)
+      (define new-stmt (send stmt update state))
+      (cond
+       [(is-a? new-stmt state%)
+        (cond
+         [(send new-stmt trivial?)
+          (new fail%)]
+         [(send new-stmt fail?)
+          succeed]
+         [else 
+          (pretty-print new-stmt)
+          (define newer-stmt
+            (append (for/list ([p (get-field subst new-stmt)])
+                      (! (new state% [subst `(,p)])))
+                    (for/list ([thing (get-field store new-stmt)])
+                      (! thing))))
+          (if (= (length newer-stmt) 1)
+              (new this% [stmt new-stmt])
+              (apply disj newer-stmt))])]
+       [(is-a? new-stmt disj%)
+        (apply disj (map (lambda (state) (new this% [stmt state]))
+                         (get-field states new-stmt)))]
+       [else (new this% [stmt new-stmt])]))
+
+    (define/public (run state)
+      (send (update state) combine state))
+    (define/public (combine state)
+      (send state set-stored this))
+
+    (define/public (augment-stream stream)
+      (stream-map (lambda (state) (run state)) stream))
+
+    (define/public (add-scope ls)
+      (new this% [stmt (send stmt add-scope ls)]))))
+
+(define (! stmt)
+  (new not% [stmt (send stmt update (new state%))]))

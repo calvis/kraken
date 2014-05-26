@@ -256,7 +256,8 @@
     (define/override (fail?) #t)
     (define/override (update state) this)
     (define/override (combine state) this)
-    (define/override (trivial?) #f)))
+    (define/override (trivial?) #f)
+    (define/override (augment-stream stream) empty-stream)))
 
 (define fail (new fail%))
 (define succeed (new state%))

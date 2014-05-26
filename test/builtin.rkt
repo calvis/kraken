@@ -17,7 +17,7 @@
 #lang racket/base
 
 (require (except-in rackunit fail) rackunit/text-ui racket/format
-         racket/class racket/pretty)
+         racket/class racket/pretty racket/promise racket/stream)
 (require (for-syntax racket/base syntax/parse))
 (require "../main.rkt")
 
@@ -58,7 +58,7 @@
              (engine-run num (engine (lambda (y) expr))))))]))
 
 (define-syntax-rule (check-quick-termination expr)
-  (check-termination-macro 50 expr))
+  (check-termination-macro 200 expr))
 (define-syntax-rule (check-long-termination expr)
   (check-termination-macro 10000 expr))
 
@@ -123,7 +123,11 @@
 
   (check-equal?
    (send (new state%) update (new state% [subst `((,x . 5))]))
-   (new state%)))
+   (new state%))
+
+  (check-true
+   (stream-empty? (send (new fail%) 
+                        augment-stream (list (new state%))))))
 
 (define-dependency-test associate-tests
   (state-tests)
@@ -321,18 +325,34 @@
                            (≡ y 6))
                      (≡ z 5))
                 (≡ x 5) (≡ y 6)))
-   '(5)))
+   '(5))
+
+  (check-equal?
+   (run (==> fail (disj (car@ '() 5))))
+   (run (new fail%))))
+
+(define-dependency-test not-tests
+  (associate-tests conj-tests disj-tests)
+  
+  (check-equal?
+   (! (new state%)) 
+   (! (new state%)))
+
+  (check-equal?
+   (send (! (conj (≡ x 5) (≡ y 6))) update (new state%))
+   (send (disj (! (≡ y 6)) (! (≡ x 5))) update (new state%))))
 
 (define-dependency-test operator-tests
-  (associate-tests conj-tests disj-tests shape-tests ==>-tests)
+  (associate-tests conj-tests disj-tests shape-tests ==>-tests not-tests)
 
   (define@ (foo x)
     (==> (shape x (cons (any) (any)))
-         (conj succeed (foo (cdr@ x)))))
+         (foo (cdr@ x))))
 
   ;; x is never a pair, so the conj should never be joined
   ;; if succeed triggers joining, this infinite loops
-  (check-quick-termination (foo x)))
+  (check-quick-termination (foo x))
+  (check-quick-termination (run (foo x) 2)))
 
 (define-dependency-test eigen-tests
   (operator-tests)
@@ -486,8 +506,8 @@
    (run (exists (n1 n2) 
           (+@ n1 n2 1)))
    (run (exists (n1 n2)
-          (disj (conj (≡ n2 1) (≡ n1 0))
-                (conj (≡ n2 0) (≡ n1 1))))))
+          (disj (conj (≡ n1 0) (≡ n2 1))
+                (conj (≡ n1 1) (≡ n2 0))))))
 
   (let ([c1 (+@ x y z)] [c2 (+@ z y x)])
     (check-false (send (send (new state%) set-stored c1)
@@ -719,6 +739,13 @@
   (check-run-fail
    (lookup@ `((x . bool)) `x `int))
 
+  (check-quick-termination
+   (query (x) (lookup@ `((x1 . int) (x2 . int)) x `int)))
+
+  (check-equal?
+   (query (x) (lookup@ `((x1 . int) (x2 . int)) x `int))
+   '(x1 x2))
+
   (define@ (⊢@ gamma expr type)
     (case-shape expr
       [(num ,(any)) (≡ type `int)]
@@ -789,9 +816,49 @@
   (check-one-answer
    (⊢@ `() `(app (lambda (x) (var x)) (num 5)) `int))
 
+  (check-quick-termination
+   (send (≡ `int `int)
+         augment-stream 
+         (list (let ([a (var 'a)])
+                 (new state% 
+                      [subst `((,(var 'd) . ())
+                               (,(var 'd) . ,a)
+                               (,(var 'a) . num)
+                               (,(var 'x) . (num ,a)))])))))
+  
+  (check-quick-termination
+   (send
+    (lookup@ `() (car@ (cdr@ x)) `int)
+    augment-stream
+    (list
+     (let ([a (var 'a)])
+       (new state% 
+            [subst `((,(var 'd) . ())
+                     (,(var 'd) . (,a))
+                     (,(var 'a) . var)
+                     (,x . (var ,a)))])))))
+
+  (bar)
+  (let ([body (var 'body)])
+    (let ([state (new state%)])
+      (let ([c (⊢@ `((x1 . int)) x `int)])
+        (check-quick-termination
+         (send (send c update state) augment-stream (list state))))))
+
+  (bar)
+  (check-quick-termination
+   (run (⊢@ `() x `int) 1))
+  (bar)
+  (check-quick-termination
+   (query 2 (x) (⊢@ `() x `int)))
+
   (check-equal?
    (query 2 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int)))
    '((num lv.0) (var x)))
+
+  (check-equal?
+   (run (⊢@ `() `(lambda (x) ,x) `(-> int int)) 3)
+   '?)
 
   (check-run-succeed
    (forall (e) (⊢@ `() `(num ,e) `int))))
@@ -806,6 +873,7 @@
    (time (disj-tests))
    (time (shape-tests))
    (time (==>-tests))
+   (time (not-tests))
    (time (operator-tests))
 
    (time (eigen-tests))
