@@ -25,11 +25,13 @@
 ;; dom@
 
 (define dom%
-  (class attribute% 
+  (class number% 
     (super-new)
 
     (inherit-field rands)
     (define x (car rands))
+
+    (define/override (get-sexp-rator) 'dom%)
 
     (define d 
       (cond
@@ -39,7 +41,7 @@
     
     (define/public (get-value) d)
 
-    (define/augment (update state)
+    (define/override (update state)
       (let ([x (send state walk x)])
         (cond
          [(null-dom? x) (new fail% [trace this])]
@@ -51,20 +53,23 @@
          [else (new dom% [rands (list x d)])])))
 
     ;; this is the "newer" attr, attr^ was stored before
-    (define/override (merge attr^ state)
-      (define old-d (send attr^ get-value))
-      (define new-d (intersection-dom d old-d))
+    (define/augment (merge attr^ state)
       (cond
-       [(equal? new-d old-d) (send state set-stored attr^)]
-       [else
-        (define-values (store store^)
-          (partition (curryr is-a? +%) (get-field store state)))
-        (send (apply conj store)
-              run
-              (send (new dom% [rands (list x new-d)])
-                    run (new state%
-                             [subst (get-field subst state)]
-                             [store store^])))]))
+       [(is-a? attr^ this%)
+        (define old-d (send attr^ get-value))
+        (define new-d (intersection-dom d old-d))
+        (cond
+         [(equal? new-d old-d) (send state set-stored attr^)]
+         [else
+          (define-values (store store^)
+            (partition (curryr is-a? +%) (get-field store state)))
+          (send (apply conj store)
+                run
+                (send (new dom% [rands (list x new-d)])
+                      run (new state%
+                               [subst (get-field subst state)]
+                               [store store^])))])]
+       [else (send state set-stored this)]))
 
     (define/override (augment-stream stream)
       (send (apply disj (for/list ([i (dom->list d)]) (≡ x i)))
@@ -150,249 +155,221 @@
 (define (interval? x)
   (pair? x))
 
-(define interval-union
-  (lambda (i j)
-    (let ((imin (car i)) (imax (cdr i))
-                         (jmin (car j)) (jmax (cdr j)))
-      (cond
-        ((or (= imax jmin)
-             (= imax (- jmin 1)))
-         `((,imin . ,jmax)))
-        ((or (= jmax imin)
-             (= jmax (- imin 1)))
-         `((,jmin . ,imax)))
-        ((< imax jmin) `(,i ,j))
-        ((< jmax imin) `(,j ,i))
-        ((and (<= imin jmin) (>= imax jmax)) `((,imin . ,imax)))
-        ((and (<= jmin imin) (>= jmax imax)) `((,jmin . ,jmax)))
-        ((and (<= imin jmin) (>= jmax imax)) `((,imin . ,jmax)))
-        ((and (<= jmin imin) (>= imax jmax)) `((,jmin . ,imax)))
-        (else (error 'interval-union "not defined for ~a ~a" i j))))))
+(define (interval-union i j)
+  (define imin (car i))
+  (define imax (cdr i))
+  (define jmin (car j))
+  (define jmax (cdr j))
+  (cond
+   [(or (= imax jmin) (= imax (- jmin 1)))
+    (range-dom imin jmax)]
+   [(or (= jmax imin) (= jmax (- imin 1)))
+    (range-dom jmin imax)]
+   [(< imax jmin) `(,i ,j)]
+   [(< jmax imin) `(,j ,i)]
+   [(and (<= imin jmin) (>= imax jmax))
+    (range-dom jmin jmax)]
+   [(and (<= jmin imin) (>= jmax imax))
+    (range-dom jmin jmax)]
+   [(and (<= imin jmin) (>= jmax imax))
+    (range-dom imin jmax)]
+   [(and (<= jmin imin) (>= imax jmax))
+    (range-dom jmin imax)]
+   [else (error 'interval-union "not defined for ~a ~a" i j)]))
 
-(define interval-difference
-  (lambda (i j)
-    (let ((imin (car i)) (imax (cdr i))
-                         (jmin (car j)) (jmax (cdr j)))
-      (cond
-        ((> jmin imax) `((,imin . ,imax)))
-        ((and (<= jmin imin) (>= jmax imax)) `())
-        ((and (< imin jmin) (> imax jmax))
-         `((,imin . ,(- jmin 1)) (,(+ jmax 1) . ,imax)))
-        ((and (< imin jmin) (<= jmin imax))
-         `((,imin . ,(- jmin 1))))
-        ((and (> imax jmax) (<= jmin imin))
-         `((,(+ jmax 1) . ,imax)))
-        (else (error 'interval-difference "not defined for ~a ~a" i j))))))
+(define (interval-difference i j)
+  (define imin (car i))
+  (define imax (cdr i))
+  (define jmin (car j))
+  (define jmax (cdr j))
+  (cond
+   [(> jmin imax)
+    (range-dom imin imax)]
+   [(and (<= jmin imin) (>= jmax imax)) 
+    `()]
+   [(and (< imin jmin) (> imax jmax))
+    `((,imin . ,(- jmin 1)) (,(+ jmax 1) . ,imax))]
+   [(and (< imin jmin) (<= jmin imax))
+    (range-dom imin (sub1 jmin))]
+   [(and (> imax jmax) (<= jmin imin))
+    (range-dom (add1 jmax) imax)]
+   [else (error 'interval-difference "not defined for ~a ~a" i j)]))
 
-(define interval-intersection
-  (lambda (i j)
-    (let ((imin (car i)) (imax (cdr i))
-                         (jmin (car j)) (jmax (cdr j)))
-      (cond
-        ((< imax jmin) `())
-        ((< jmax imin) `())
-        ((and (<= imin jmin) (>= imax jmax)) `(,j))
-        ((and (<= jmin imin) (>= jmax imax)) `(,i))
-        ((and (<= imin jmin) (<= imax jmax))
-         `((,jmin . ,imax)))
-        ((and (<= jmin imin) (<= jmax imax))
-         `((,imin . ,jmax)))
-        (else (error 'interval-intersection "not defined for ~a ~a" i j))))))
+(define (interval-intersection i j)
+  (define imin (car i))
+  (define imax (cdr i))
+  (define jmin (car j))
+  (define jmax (cdr j))
+  (cond
+   [(< imax jmin) `()]
+   [(< jmax imin) `()]
+   [(and (<= imin jmin) (>= imax jmax)) `(,j)]
+   [(and (<= jmin imin) (>= jmax imax)) `(,i)]
+   [(and (<= imin jmin) (<= imax jmax))
+    (range-dom jmin imax)]
+   [(and (<= jmin imin) (<= jmax imax))
+    (range-dom imin jmax)]
+   [else (error 'interval-intersection "not defined for ~a ~a" i j)]))
 
-(define interval-memq?
-  (lambda (x intvl)
-    (and (>= x (car intvl)) (<= x (cdr intvl)))))
+(define (interval-memq? x intvl)
+  (and (>= x (car intvl)) (<= x (cdr intvl))))
 
-(define interval-combinable?
-  (lambda (i j)
-    (let ((imin (car i)) (imax (cdr i))
-                         (jmin (car j)) (jmax (cdr j)))
-      (or (= imax (- jmin 1))
-          (= jmax (- imin 1))
-          (not (or (> jmin imax) (> imin jmax)))))))
+(define (interval-combinable? i j)
+  (define imin (car i))
+  (define imax (cdr i))
+  (define jmin (car j))
+  (define jmax (cdr j))
+  (or (= imax (sub1 jmin))
+      (= jmax (sub1 imin))
+      (not (or (> jmin imax) (> imin jmax)))))
 
-(define interval->
-  (lambda (i j)
-    (> (car i) (cdr j))))
+(define (interval-> i j)
+  (> (car i) (cdr j)))
 
-(define interval-<
-  (lambda (i j)
-    (< (cdr i) (car j))))
+(define (interval-< i j)
+  (< (cdr i) (car j)))
 
-(define singleton-interval?
-  (lambda (x)
-    (= (car x) (cdr x))))
+(define (singleton-interval? x)
+  (= (car x) (cdr x)))
 
-(define copy-before-interval
-  (lambda (pred intvl)
-    (let ((min (car intvl)) (max (cdr intvl)))
-      (let loop ((i min))
-        (cond
-          ((pred i)
-           (if (= min i) `() `((,min . ,(- i 1)))))
-          ((= i max) `())
-          (else (loop (+ i 1))))))))
-
-(define drop-before-interval
-  (lambda (pred intvl)
-    (let ((min (car intvl)) (max (cdr intvl)))
-      (let loop ((i min))
-        (cond
-          ((pred i) `((,i . ,max)))
-          ((= i max) `())
-          (else (loop (+ i 1))))))))
-
-(define range-dom
-  (lambda (lb ub)
+(define (copy-before-interval pred intvl)
+  (define min (car intvl))
+  (define max (cdr intvl))
+  (let loop ([i min])
     (cond
-     [(>= ub 0)
-      `((,(max lb 0) . ,ub))]
-     [else `()])))
+     [(pred i)
+      (if (= min i) `() (range-dom min (sub1 i)))]
+     [(= i max) `()]
+     [else (loop (+ i 1))])))
 
-(define value-dom?
-  (lambda (v)
-    (and (integer? v) (<= 0 v))))
-
-(define make-dom
-  (lambda (n*)
-    (let loop ((n* n*))
-      (cond
-        ((null? n*) `())
-        (else (cons-dom (car n*) (loop (cdr n*))))))))
-
-(define car-dom
-  (lambda (dom)
-    (unless (and (list? dom) (andmap interval? dom))
-      (error 'car-dom "invalid domain ~a" dom))
-    (caar dom)))
-
-(define cdr-dom
-  (lambda (dom)
-    (unless (and (list? dom) (andmap interval? dom))
-      (error 'cdr-dom "invalid domain ~a" dom))
-    (let ((intvl (car dom)))
-      (if (singleton-interval? intvl)
-          (cdr dom)
-          (cons `(,(+ (car intvl) 1) . ,(cdr intvl)) (cdr dom))))))
-
-(define cons-dom
-  (lambda (x dom)
-    (let loop ((x (if (interval? x) x `(,x . ,x))) (dom dom))
-      (cond
-        ((null-dom? dom) `(,x))
-        ((interval-combinable? x (car dom))
-         (append-dom (interval-union x (car dom)) (cdr dom)))
-        ((interval-> x (car dom))
-         (cons-dom (car dom) (loop x (cdr dom))))
-        (else (cons x dom))))))
-
-(define append-dom
-  (lambda (l s)
+(define (drop-before-interval pred intvl)
+  (define min (car intvl))
+  (define max (cdr intvl))
+  (let loop ([i min])
     (cond
-      ((null-dom? l) s)
-      (else (cons-dom (car l) (append-dom (cdr l) s))))))
+     [(pred i) (range-dom i max)]
+     [(= i max) (list)]
+     [else (loop (+ i 1))])))
 
-(define null-dom?
-  (lambda (x)
-    (null? x)))
+(define (range-dom lb ub)
+  (cond
+   [(>= ub 0) `((,(max lb 0) . ,ub))]
+   [else `()]))
 
-(define singleton-dom?
-  (lambda (dom)
-    (unless (and (list? dom) (andmap interval? dom))
-      (error 'singleton-dom? "invalid domain ~a" dom))
-    (and (not (null-dom? dom))
-         (null-dom? (cdr dom))
-         (singleton-interval? (car dom)))))
+(define (value-dom? v)
+  (and (integer? v) (<= 0 v)))
 
-(define singleton-element-dom
-  (lambda (dom)
-    (unless (and (list? dom) (andmap interval? dom))
-      (error 'singleton-element-dom "invalid domain ~a" dom))
-    (caar dom)))
-
-(define min-dom
-  (lambda (dom)
-    (unless (and (list? dom) (andmap interval? dom))
-      (error 'min-dom "invalid domain ~a" dom))
-    (caar dom)))
-
-(define max-dom
-  (lambda (dom)
+(define (make-dom n*)
+  (let loop ([n* n*])
     (cond
-      ((null-dom? (cdr dom)) (cdar dom))
-      (else (max-dom (cdr dom))))))
+     [(null? n*) (list)]
+     [else (cons-dom (car n*) (loop (cdr n*)))])))
 
+(define (car-dom dom)
+  (caar dom))
 
+(define (cdr-dom dom)
+  (define intvl (car dom))
+  (if (singleton-interval? intvl)
+      (cdr dom)
+      (cons `(,(+ (car intvl) 1) . ,(cdr intvl)) (cdr dom))))
 
-(define memv-dom?
-  (lambda (v dom)
-    (and (value-dom? v)
-         (findf (lambda (d) (interval-memq? v d)) dom))))
-
-(define intersection-dom
-  (lambda (dom1 dom2)
+(define (cons-dom x dom)
+  (let loop ([x (if (interval? x) x `(,x . ,x))] [dom dom])
     (cond
-      ((or (null-dom? dom1) (null-dom? dom2)) '())
-      ((interval-< (car dom1) (car dom2))
-       (intersection-dom (cdr dom1) dom2))
-      ((interval-> (car dom1) (car dom2))
-       (intersection-dom dom1 (cdr dom2)))
-      (else
-       (let ((a1 (interval-difference (car dom1) (car dom2)))
-             (a2 (interval-difference (car dom2) (car dom1))))
-         (append-dom
-          (interval-intersection (car dom1) (car dom2))
-          (intersection-dom
-           (append-dom a1 (cdr dom1))
-           (append-dom a2 (cdr dom2)))))))))
+     [(null-dom? dom) `(,x)]
+     [(interval-combinable? x (car dom))
+      (append-dom (interval-union x (car dom)) (cdr dom))]
+     [(interval-> x (car dom))
+      (cons-dom (car dom) (loop x (cdr dom)))]
+     [else (cons x dom)])))
 
-(define diff-dom
-  (lambda (dom1 dom2)
-    (cond
-      ((or (null-dom? dom1) (null-dom? dom2)) dom1)
-      ((interval-< (car dom1) (car dom2))
-       (cons (car dom1) (diff-dom (cdr dom1) dom2)))
-      ((interval-> (car dom1) (car dom2))
-       (diff-dom dom1 (cdr dom2)))
-      (else
-       (let ((a1 (interval-difference (car dom1) (car dom2)))
-             (a2 (interval-difference (car dom2) (car dom1))))
-         (diff-dom
-          (append-dom a1 (cdr dom1))
-          (append-dom a2 (cdr dom2))))))))
+(define (append-dom l s)
+  (cond
+   [(null-dom? l) s]
+   [else (cons-dom (car l) (append-dom (cdr l) s))]))
 
-(define remq-dom
-  (lambda (x dom)
-    (diff-dom dom (make-dom (list x)))))
+(define (null-dom? x) 
+  (null? x))
 
-(define copy-before-dom
-  (lambda (pred dom)
-    (cond
-      ((null? dom) '())
-      ((let ((intvl (car dom)))
-         (and (pred (cdr intvl)) intvl))
-       => (lambda (intvl) (copy-before-interval pred intvl)))
-      (else (cons (car dom) (copy-before-dom pred (cdr dom)))))))
+(define (singleton-dom? dom)
+  (and (not (null-dom? dom))
+       (null-dom? (cdr dom))
+       (singleton-interval? (car dom))))
 
-(define drop-before-dom
-  (lambda (pred dom)
-    (cond
-      ((null? dom) '())
-      ((let ((intvl (car dom)))
-         (and (pred (cdr intvl)) intvl))
-       => (lambda (intvl)
-            (append (drop-before-interval pred intvl) (cdr dom))))
-      (else (drop-before-dom pred (cdr-dom dom))))))
+(define (singleton-element-dom dom)
+  (caar dom))
 
-(define disjoint-dom?
-  (lambda (dom1 dom2)
-    (cond
-      ((or (null? dom1) (null? dom2)) #t)
-      ((interval-< (car dom1) (car dom2))
-       (disjoint-dom? (cdr dom1) dom2))
-      ((interval-> (car dom1) (car dom2))
-       (disjoint-dom? dom1 (cdr dom2)))
-      (else #f))))
+(define (min-dom dom)
+  (caar dom))
+
+(define (max-dom dom)
+  (cond
+   [(null-dom? (cdr dom)) (cdar dom)]
+   [else (max-dom (cdr dom))]))
+
+(define (memv-dom? v dom)
+  (and (value-dom? v)
+       (findf (lambda (d) (interval-memq? v d)) dom)))
+
+(define (intersection-dom dom1 dom2)
+  (cond
+   [(or (null-dom? dom1) (null-dom? dom2)) '()]
+   [(interval-< (car dom1) (car dom2))
+    (intersection-dom (cdr dom1) dom2)]
+   [(interval-> (car dom1) (car dom2))
+    (intersection-dom dom1 (cdr dom2))]
+   [else
+    (define a1 (interval-difference (car dom1) (car dom2)))
+    (define a2 (interval-difference (car dom2) (car dom1)))
+    (append-dom
+     (interval-intersection (car dom1) (car dom2))
+     (intersection-dom
+      (append-dom a1 (cdr dom1))
+      (append-dom a2 (cdr dom2))))]))
+
+(define (diff-dom dom1 dom2)
+  (cond
+   [(or (null-dom? dom1) (null-dom? dom2)) dom1]
+   [(interval-< (car dom1) (car dom2))
+    (cons (car dom1) (diff-dom (cdr dom1) dom2))]
+   [(interval-> (car dom1) (car dom2))
+    (diff-dom dom1 (cdr dom2))]
+   [else
+    (define a1 (interval-difference (car dom1) (car dom2)))
+    (define a2 (interval-difference (car dom2) (car dom1)))
+    (diff-dom
+     (append-dom a1 (cdr dom1))
+     (append-dom a2 (cdr dom2)))]))
+
+(define (remq-dom x dom)
+  (diff-dom dom (make-dom (list x))))
+
+(define (copy-before-dom pred dom)
+  (cond
+   [(null? dom) '()]
+   [(let ((intvl (car dom)))
+      (and (pred (cdr intvl)) intvl))
+    => (lambda (intvl) (copy-before-interval pred intvl))]
+   [else (cons (car dom) (copy-before-dom pred (cdr dom)))]))
+
+(define (drop-before-dom pred dom)
+  (cond
+   [(null? dom) '()]
+   [(let ((intvl (car dom)))
+      (and (pred (cdr intvl)) intvl))
+    => (lambda (intvl)
+         (append (drop-before-interval pred intvl) (cdr dom)))]
+   [else (drop-before-dom pred (cdr-dom dom))]))
+
+(define (disjoint-dom? dom1 dom2)
+  (cond
+   [(or (null? dom1) (null? dom2)) #t]
+   [(interval-< (car dom1) (car dom2))
+    (disjoint-dom? (cdr dom1) dom2)]
+   [(interval-> (car dom1) (car dom2))
+    (disjoint-dom? dom1 (cdr dom2))]
+   [else #f]))
 
 (define (dom->list d)
   (cond

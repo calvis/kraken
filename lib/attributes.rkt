@@ -22,80 +22,6 @@
          (lib "kraken/lib/fd.rkt"))
 (provide (all-defined-out))
 
-;; =============================================================================
-;; partial-attribute-mixin
-
-(define (partial-attribute-mixin %)
-  (class % 
-    (super-new)
-    (inherit-field rands)
-    (init-field [partial #f])
-
-    (define/override (sexp-me) 
-      (cons (send this get-sexp-rator) 
-            (append rands (if partial (list partial) (list)))))
-
-    (define/override (update-rands rands)
-      (new this% [rands rands] [partial partial]))
-
-    (define/public (update-partial partial)
-      (new this% [rands rands] [partial partial]))
-
-    (define/override (update state)
-      (define new-partial
-        (or partial (send this body . rands)))
-      (define result (send new-partial update state))
-      (cond
-       [(is-a? result disj%)
-        (send this update-partial result)]
-       [else result]))))
-
-;; =============================================================================
-;; tree@
-
-(define tree%
-  (class attribute%
-    (super-new)
-    (inherit-field rands)
-    (define/augride (update state)
-      (let* ([t (send state walk (car rands))])
-        (cond
-         [(list? t) 
-          (send (new list% [rands (list t)]) update state)]
-         [(send state has-stored (list@ t)) succeed]
-         [(tree? t)
-          (match-define (tree nodes) t)
-          (send
-           (apply conj (for/list ([node nodes]) (tree@ node)))
-           update state)]
-         [(var? t) this]
-         [else fail])))
-
-    (define/overment (merge obj state)
-      (cond
-       [(or (is-a? obj this%)
-            (is-a? this (send obj get-rator)))
-        (inner (super merge obj state) merge obj state)]
-       [else (new fail%)]))))
-
-(define (tree@ t)
-  (new tree% [rands (list t)]))
-
-;; -----------------------------------------------------------------------------
-;; list@
-
-(define list%
-  (class tree%
-    (super-new)
-    (define/override (get-sexp-rator) 'list@)
-    (define/public (body ls)
-      (disj (==> (shape ls (list)))
-            (==> (shape ls (cons (any) (any)))
-                 (list@ (cdr@ ls)))))))
-
-(define (list@ ls)
-  (new (partial-attribute-mixin list%) [rands (list ls)]))
-
 ;; -----------------------------------------------------------------------------
 ;; dots@
 
@@ -110,42 +36,6 @@
 
 (define (dots@ fn ls)
   (new (partial-attribute-mixin dots%) [rands (list ls fn)]))
-
-;; =============================================================================
-;; ground@ 
-
-(define ground%
-  (class attribute% 
-    (super-new)
-    (inherit-field rands)
-    (define/overment (merge obj state)
-      (cond
-       [(or (is-a? obj this%) (is-a? this% (send obj get-rator)))
-        (inner (super merge obj state) merge obj state)]
-       [else (new fail%)]))))
-
-;; -----------------------------------------------------------------------------
-
-(define (ground-type-mixin pred?)
-  (class ground%
-    (super-new)
-    (inherit-field rands)
-    (define/override (get-sexp-rator)
-      (object-name pred?))
-    (define/augment (update state)
-      (let ([x (send state walk (car rands))])
-        (cond
-         [(var? x) (new this% [rands (list x)])]
-         [else (with-handlers ([exn:fail? (lambda (e) (new fail% [trace e]))])
-                 (if (pred? x) succeed fail))])))))
-
-;; -----------------------------------------------------------------------------
-
-(define symbol% (ground-type-mixin symbol?))
-(define number% (ground-type-mixin number?))
-
-(define (symbol@ x) (new symbol% [rands (list x)]))
-(define (number@ x) (new number% [rands (list x)]))
 
 ;; =============================================================================
 ;; length@

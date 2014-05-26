@@ -674,7 +674,15 @@
   (check-run-succeed (number@ 5))
 
   (check-run-fail
-   (conj (symbol@ x) (number@ x))))
+   (conj (symbol@ x) (number@ x)))
+
+  (check-equal?
+   (send (dom@ x (range-dom 0 1)) merge (number@ x) (new state%))
+   (send (new state%) set-stored (dom@ x (range-dom 0 1))))
+
+  (check-equal?
+   (send (dom@ x (range-dom 0 1)) merge (symbol@ x) (new state%))
+   (new fail%)))
 
 (define-dependency-test stlc-tests
   (operator-tests dots-tests eigen-tests)
