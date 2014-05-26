@@ -17,7 +17,7 @@
 #lang racket/base 
 
 (require racket/class racket/function racket/list racket/pretty
-         racket/stream)
+         racket/stream racket/promise)
 (require "states.rkt" "data.rkt")
 
 (provide (all-defined-out))
@@ -70,9 +70,19 @@
   (new ==% [x x] [v v]))
 
 (define ==%
-  (class operator%
+  (class* operator% (equal<%>)
     (init-field x v [scope '()])
     (super-new)
+
+    (define/public (equal-to? obj recur?)
+      (or (and (recur? x (get-field x obj))
+               (recur? v (get-field v obj)))
+          (and (recur? x (get-field v obj))
+               (recur? v (get-field x obj)))))
+    (define/public (equal-hash-code-of hash-code)
+      (+ 1 (hash-code x) (hash-code v)))
+    (define/public (equal-secondary-hash-code-of hash-code)
+      (+ (* 10 (hash-code x)) (* 100 (hash-code v))))
 
     (define/override (sexp-me)
       (list (object-name this%) x v))
@@ -92,7 +102,12 @@
       (new this% [x x] [v v] [scope (cons ls scope)]))
 
     (define/public (augment-stream stream)
-      (filter-not-fail (stream-map (lambda (state) (run state)) stream)))))
+      (filter-not-fail (stream-map (lambda (state) (run state)) stream)))
+
+    (define/public (augment result)
+      (lazy (let ([p (force result)])
+              (and p (cons (send (car p) associate x v scope)
+                           (augment (cdr p)))))))))
 
 ;; -----------------------------------------------------------------------------
 ;; conjunction
@@ -126,19 +141,9 @@
     (define/public (add-query t)
       (new this% [clauses clauses] [query t]))
 
-    (define/public (augment-stream stream)
-      (let loop ([stream stream])
-        (cond
-         [(stream-empty? stream) stream]
-         [else
-          (define state (stream-first stream))
-          (let loop2 ([states clauses])
-            (cond 
-             [(null? states) (loop (stream-rest stream))]
-             [else (stream-append
-                    (send (send (car states) update state)
-                          augment-stream (list state))
-                    (loop2 (cdr states)))]))])))))
+    (define/public (augment result)
+      (for/fold ([result result]) ([thing clauses])
+        (send thing augment result)))))
 
 (define (conj . clauses)
   (new conj% [clauses clauses]))
@@ -148,7 +153,7 @@
 
 (define disj%
   (class* operator% (equal<%>)
-    (init-field [states '()] [ctx #f])
+    (init-field [states '()])
     (super-new)
 
     (define/override (sexp-me)
@@ -178,12 +183,32 @@
     (define/public (run state)
       (send (update state) combine state))
     (define/public (combine state)
-      (send state set-stored this))
+      (cond
+       [(send state has-stored this) state]
+       [else (send state set-stored this)]))
 
     (define/public (augment-stream stream)
       (stream-interleave
        (map (lambda (state) (send state augment-stream stream))
             states)))
+
+    (define/public (augment result)
+      (result-interleave
+       (map (lambda (state) (send state augment result)) states)))
+
+    ;; [List-of Result] -> Result
+    (define (result-interleave result*)
+      (cond
+       [(null? result*) (delay #f)]
+       [else (let loop ([r* result*] [r*^ '()])
+               (lazy
+                (cond
+                 [(null? r*) (result-interleave (reverse r*^))]
+                 [else (let ([p (force (car r*))])
+                         (cond
+                          [(not p) (loop (cdr r*) r*^)]
+                          [else (cons (car p) 
+                                      (loop (cdr r*) (cons (cdr p) r*^)))]))])))]))
 
     (define/public (add-scope ls)
       (new disj% [states (map (lambda (ss) (send ss add-scope ls)) states)]))))
@@ -244,8 +269,6 @@
                  [(stream-empty? stream) stream]
                  [else
                   (define state (stream-first stream))
-                  (pretty-print consequent)
-                  (pretty-print state)
                   (stream-append
                    (send (send consequent update state)
                          augment-stream (list state))
@@ -254,7 +277,10 @@
     (define/public (add-scope ls)
       (new this%
            [test (send test add-scope ls)]
-           [consequent (send consequent add-scope ls)]))))
+           [consequent (send consequent add-scope ls)]))
+
+    (define/public (augment result)
+      (send consequent augment (send test augment result)))))
 
 (define (==> t [c succeed]) 
   (new ==>% 
@@ -289,7 +315,6 @@
          [(send new-stmt fail?)
           succeed]
          [else 
-          (pretty-print new-stmt)
           (define newer-stmt
             (append (for/list ([p (get-field subst new-stmt)])
                       (! (new state% [subst `(,p)])))

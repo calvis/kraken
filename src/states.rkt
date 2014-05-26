@@ -20,12 +20,30 @@
          racket/function
          racket/stream
          racket/list
-         racket/set)
+         racket/set
+         racket/promise)
 
 (require "data.rkt"
          "interfaces.rkt")
 
 (provide (all-defined-out))
+
+(define (take-result result n)
+  (cond
+   [(and n (zero? n)) '()]
+   [else (let ([p (force result)])
+           (cond
+            [(not p) '()]
+            [(send (car p) fail?)
+             (take-result (cdr p) (and n (sub1 n)))]
+            [else (cons (car p) (take-result (cdr p) (and n (sub1 n))))]))]))
+
+(define (filter-result result)
+  (lazy (let ([p (force result)])
+          (cond
+           [(not p) #f]
+           [(send (car p) fail?) (filter-result (cdr p))]
+           [else (cons (car p) (filter-result (cdr p)))]))))
 
 (define state%
   (class* object% (equal<%> printable<%>)
@@ -87,16 +105,10 @@
       (new this% [subst subst] [store (cons thing store)]))
 
     (define/public (narrow [n #f])
-      (define (take stream n)
-        (cond
-         [(and n (zero? n)) '()]
-         [(stream-empty? stream) '()]
-         [else (cons (stream-first stream) 
-                     (take (stream-rest stream) (and n (sub1 n))))]))
       (define answer-stream
-        (send this augment-stream (list (new state%))))
+        (send this augment (delay (cons (new state%) (delay #f)))))
       (define result
-        (take (filter-not-fail answer-stream) n))
+        (take-result answer-stream n))
       (if query (map (lambda (state) (send state reify query)) result) result))
 
     (define/public (reify v)
@@ -191,7 +203,22 @@
     (define/public (fail?) #f)
 
     (define/public (add-query query)
-      (new this% [subst subst] [store store] [query query]))))
+      (new this% [subst subst] [store store] [query query]))
+
+    ;; Result is a [Delay [Maybe (cons State Result)]]
+    ;; Result -> Result
+    (define/public (augment result)
+      (lazy (augment-store (augment-subst result))))
+    
+    ;; Result -> Result
+    (define/public (augment-subst result)
+      (lazy (let ([result (force result)])
+              (and result (cons (add-subst (car result))
+                                (augment-subst (cdr result)))))))
+
+    (define/public (augment-store result)
+      (for/fold ([result result]) ([thing store])
+        (send thing augment result)))))
 
 ;; check-scope : 
 ;;   [List-of EigenVar] [List-of CVar] [List-of [List-of CVar]] -> Boolean
@@ -257,7 +284,8 @@
     (define/override (update state) this)
     (define/override (combine state) this)
     (define/override (trivial?) #f)
-    (define/override (augment-stream stream) empty-stream)))
+    (define/override (augment-stream stream) empty-stream)
+    (define/override (augment result) (delay #f))))
 
 (define fail (new fail%))
 (define succeed (new state%))

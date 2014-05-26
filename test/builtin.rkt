@@ -127,7 +127,23 @@
 
   (check-true
    (stream-empty? (send (new fail%) 
-                        augment-stream (list (new state%))))))
+                        augment-stream (list (new state%)))))
+
+  (check-false
+   (force (send (new fail%) augment (delay (cons (new state%)) #f))))
+
+  (check-equal?
+   (take-result
+    (send (new state%) augment (delay (cons (new state%) (delay #f))))
+    #f)
+   (list (new state%)))
+
+  (check-equal?
+   (take-result
+    (send (new state% [subst `((,x . 5))]) 
+          augment (delay (cons (new state%) (delay #f))))
+    #f)
+   (list (new state% [subst `((,x . 5))]))))
 
 (define-dependency-test associate-tests
   (state-tests)
@@ -227,6 +243,14 @@
    (run (≡ x 5)))
 
   (check-equal?
+   (take-result
+    (send (new state% [store (list (disj (≡ x 5) (≡ x 6)))])
+          augment (delay (cons (new state%) (delay #f))))
+    #f)
+   (list (send (new state%) associate x 5)
+         (send (new state%) associate x 6)))
+
+  (check-equal?
    (run (exists (x y n)
           (conj (disj (conj (≡ n 0) (≡ x '()))
                       (conj (≡ n 1) (≡ x (list y))))
@@ -243,6 +267,21 @@
           (conj (disj (≡ f 0) (≡ f 1))
                 (disj (≡ g 0) (≡ g 1))))
    '((0 0) (1 0) (0 1) (1 1)))
+
+  (check-equal?
+   (disj (≡ x 5) (≡ x 6))
+   (disj (≡ x 5) (≡ x 6)))
+
+  (check-not-false
+   (send (new state% [store (list (disj (≡ x 5) (≡ x 6)))])
+         has-stored (disj (≡ x 5) (≡ x 6))))
+
+  (check-equal?
+   (send (conj (disj (≡ x 5) (≡ x 6))
+               (disj (≡ x 5) (≡ x 6)))
+         run (new state%))
+   (send (disj (≡ x 5) (≡ x 6))
+         run (new state%)))
 
   (check-equal?
    (run (conj (disj (≡ x 5) (≡ x 6))
@@ -329,7 +368,14 @@
 
   (check-equal?
    (run (==> fail (disj (car@ '() 5))))
-   (run (new fail%))))
+   (run (new fail%)))
+
+  (check-equal?
+   (take-result
+    (send (==> (≡ x 5) (≡ y 6)) 
+          augment (delay (cons (new state%) (delay #f))))
+    #f)
+   (list (new state% [subst `((,y . 6) (,x . 5))]))))
 
 (define-dependency-test not-tests
   (associate-tests conj-tests disj-tests)
@@ -347,7 +393,7 @@
 
   (define@ (foo x)
     (==> (shape x (cons (any) (any)))
-         (foo (cdr@ x))))
+         (disj (== x (cons 1 2)) (foo (cdr@ x)))))
 
   ;; x is never a pair, so the conj should never be joined
   ;; if succeed triggers joining, this infinite loops
@@ -838,17 +884,12 @@
                      (,(var 'a) . var)
                      (,x . (var ,a)))])))))
 
-  (bar)
-  (let ([body (var 'body)])
-    (let ([state (new state%)])
-      (let ([c (⊢@ `() x `int)])
-        (check-quick-termination
-         (send c augment-stream (list state))))))
-  
-  (bar)
+  (check-quick-termination
+   (send (⊢@ `() x `int) augment (delay (cons (new state%) (delay #f)))))
+
   (check-quick-termination
    (run (⊢@ `() x `int) 1))
-  (bar)
+
   (check-quick-termination
    (query 2 (x) (⊢@ `() x `int)))
 

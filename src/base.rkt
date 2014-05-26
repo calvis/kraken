@@ -20,6 +20,7 @@
          racket/function
          racket/stream
          racket/list
+         racket/promise
          (except-in racket/match ==))
 (require "interfaces.rkt"
          "states.rkt"
@@ -94,6 +95,18 @@
     (define/public (augment-stream stream)
       (filter-not-fail       
        (stream-map (lambda (state) (augment-state state)) stream)))
+
+    (define/public (augment result)
+      (lazy (let ([p (force result)])
+              (cond
+               [(not p) #f]
+               [else (let ([state (car p)])
+                       (cond
+                        [(send state fail?) 
+                         (augment (cdr p))]
+                        [else
+                         (cons (augment-state state)
+                               (augment (cdr p)))]))]))))
 
     (define/public (merge obj state)
       (cond
@@ -360,7 +373,8 @@
     (define/augride (update state)
       (define new-partial
         (or partial (send this body . rands)))
-      (define result (send new-partial update state))
+      (define result
+        (send new-partial update state))
       (cond
        [(is-a? result disj%)
         (send this update-partial result)]
@@ -368,5 +382,9 @@
 
     (define/override (augment-stream stream)
       (define new-partial (or partial (send this body . rands)))
-      (send new-partial augment-stream stream))))
+      (send new-partial augment-stream stream))
+
+    (define/override (augment result)
+      (define new-partial (or partial (send this body . rands)))
+      (lazy (send new-partial augment result)))))
 

@@ -73,7 +73,11 @@
 
     (define/override (augment-stream stream)
       (send (apply disj (for/list ([i (dom->list d)]) (≡ x i)))
-            augment-stream stream))))
+            augment-stream stream))
+
+    (define/override (augment result)
+      (send (apply disj (for/list ([i (dom->list d)]) (≡ x i)))
+            augment result))))
 
 (define (dom@ x d)
   (new dom% [rands (list x d)]))
