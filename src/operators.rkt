@@ -137,11 +137,7 @@
       (new this% [clauses clauses] [query t]))
 
     (define/public (augment result)
-      (let loop ([clauses clauses] [result result])
-        (cond
-         [(null? clauses) result]
-         [(fail-result? result) fail-result]
-         [else (delay (loop (cdr clauses) (send (car clauses) augment result)))])))))
+      (send (new state% [store clauses]) augment result))))
 
 (define (conj . clauses)
   (new conj% [clauses clauses]))
@@ -187,30 +183,23 @@
 
     (define/public (augment result)
       (result-interleave
-       (map (lambda (state) (send state augment result)) states)))
+       (stream-map (lambda (state) (send state augment result)) states)))
 
     (define/public (add-scope ls)
       (new disj% [states (map (lambda (ss) (send ss add-scope ls)) states)]))))
 
 ;; [List-of Result] -> Result
-(define (result-interleave result*)
-  (printf "result-interleave:\n")
-  (printf " result*: ~a\n" result*)
+(define (result-interleave stream-result)
   (cond
-   [(null? result*) fail-result]
-   [else (let loop ([r* result*] [r*^ '()])
-           (printf " r*: ~a\n" r*)
-           (printf " r*^: ~a\n" r*^)
+   [(stream-empty? stream-result) fail-result]
+   [else (let loop ([r* stream-result] [r*^ '()])
            (cond
-            [(null? r*) (result-interleave (reverse r*^))]
-            [else (let ([p (force (car r*))])
-                    (printf " p: ~a\n" p)
+            [(stream-empty? r*)
+             (result-interleave (reverse r*^))]
+            [else (let ([p (force (stream-first r*))])
                     (cond
-                     [(not p) (loop (cdr r*) r*^)]
-                     [else 
-                      (let ([ans (delay (cons (car p) 
-                                              (loop (cdr r*) (cons (cdr p) r*^))))])
-                        (printf " ans: ~a\n" ans) ans)]))]))]))
+                     [(not p) (loop (stream-rest r*) r*^)]
+                     [else (delay (cons (car p) (loop (stream-rest r*) (cons (cdr p) r*^))))]))]))]))
 
 (define (disj . clauses)
   (new disj% [states clauses]))
@@ -264,10 +253,9 @@
            [consequent (send consequent add-scope ls)]))
 
     (define/public (augment result)
-      (let ([result (filter-result (send test augment result))])
-        (if (fail-result? result) 
-            result 
-            (send consequent augment result))))))
+      (cond
+       [(fail-result? result) result]
+       [else (send consequent augment (filter-result (send test augment result)))]))))
 
 (define (==> t [c succeed]) 
   (new ==>% 

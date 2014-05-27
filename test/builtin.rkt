@@ -239,20 +239,18 @@
    (run (≡ x 5)))
 
   (check-equal?
-   (take-result
-    (send (new state% [store (list (disj (≡ x 5) (≡ x 6)))])
-          augment (delay (cons (new state%) (delay #f))))
-    #f)
-   (list (send (new state%) associate x 5)
-         (send (new state%) associate x 6)))
-
-  (check-equal?
    (run (exists (x y n)
           (conj (disj (conj (≡ n 0) (≡ x '()))
                       (conj (≡ n 1) (≡ x (list y))))
                 (≡ n 1))))
    (run (exists (x y n)
           (conj (≡ n 1) (≡ x (list y))))))
+
+  (check-quick-termination
+   (take-result
+    (send (new state% [store (list (disj (≡ x 5) (≡ x 6)))])
+          augment (delay (cons (new state%) fail-result)))
+    #f))
 
   (check-equal?
    (run (disj (≡ x 1) (≡ x 2)))
@@ -391,7 +389,7 @@
     (==> fail (foo (cdr@ (list)))))
 
   (check-quick-termination
-   (take-result (send (foo x) augment (delay (cons (new state%) (delay #f)))) #f)))
+   (take-result (send (foo x) augment (delay (cons (new state%) fail-result))) #f)))
 
 (define-dependency-test not-tests
   (associate-tests conj-tests disj-tests)
@@ -414,7 +412,9 @@
   ;; x is never a pair, so the conj should never be joined
   ;; if succeed triggers joining, this infinite loops
   (check-quick-termination (foo x))
-  (check-quick-termination (run (foo x) 1))
+  (check-quick-termination 
+   (send (new state% [store (list (foo x))])
+         augment (delay (cons (new state%) fail-result))))
   (check-quick-termination (run (foo x) 2))
 
   (define@ (bar@ x)

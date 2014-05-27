@@ -3,7 +3,7 @@
 (define version "0.0")
 (define collection "kraken")
 (define test-omit-paths 
-  (list "info.rkt" "lang/main.rkt" "main.rkt"))
+  (list "info.rkt" "lang/reader.rkt" "main.rkt"))
 (define scribblings 
   (list '("doc/kraken.scrbl" ())))
 (define deps

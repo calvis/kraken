@@ -21,12 +21,16 @@
          racket/stream
          racket/list
          racket/set
-         racket/promise)
+         racket/promise
+         racket/pretty)
 
 (require "data.rkt"
          "interfaces.rkt")
 
 (provide (all-defined-out))
+
+(define fail-result (delay #f))
+(define (fail-result? x) (eq? x fail-result))
 
 (define (take-result result n)
   (cond
@@ -34,19 +38,18 @@
    [else (let ([p (force result)])
            (cond
             [(not p) '()]
-            [(send (car p) fail?)
-             (take-result (cdr p) (and n (sub1 n)))]
             [else (cons (car p) (take-result (cdr p) (and n (sub1 n))))]))]))
 
 (define (filter-result result)
   (cond
    [(fail-result? result) result]
-   [else
-    (let ([p (force result)])
-      (cond
-       [(not p) fail-result]
-       [(send (car p) fail?) (filter-result (cdr p))]
-       [else (delay (cons (car p) (filter-result (cdr p))))]))]))
+   [else (let ([p (force result)])
+           (cond
+            [(not p) fail-result]
+            [(and (is-a? (car p) state%)
+                  (send (car p) fail?))
+             (filter-result (cdr p))]
+            [else (lazy (cons (car p) (filter-result (cdr p))))]))]))
 
 (define (map-result fn result)
   (cond
@@ -55,8 +58,7 @@
     (let ([p (force result)])
       (cond
        [(not p) fail-result]
-       [(send (car p) fail?) (map-result fn (cdr p))]
-       [else (delay (cons (fn (car p)) (map-result fn (cdr p))))]))]))
+       [else (lazy (cons (fn (car p)) (map-result fn (cdr p))))]))]))
 
 (define state%
   (class* object% (equal<%> printable<%>)
@@ -220,7 +222,7 @@
         (cond
          [(null? store) result]
          [(fail-result? result) fail-result]
-         [else (delay (loop (cdr store) (send (car store) augment result)))])))))
+         [else (loop (cdr store) (send (car store) augment result))])))))
 
 ;; check-scope : 
 ;;   [List-of EigenVar] [List-of CVar] [List-of [List-of CVar]] -> Boolean
@@ -262,9 +264,6 @@
 
   ;; returns the total set of related variables at the end
   (set->list (loop X related)))
-
-(define fail-result (delay #f))
-(define (fail-result? x) (eq? x fail-result))
 
 (define fail%
   (class* state% (printable<%>)
