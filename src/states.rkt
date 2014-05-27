@@ -39,11 +39,24 @@
             [else (cons (car p) (take-result (cdr p) (and n (sub1 n))))]))]))
 
 (define (filter-result result)
-  (lazy (let ([p (force result)])
-          (cond
-           [(not p) #f]
-           [(send (car p) fail?) (filter-result (cdr p))]
-           [else (cons (car p) (filter-result (cdr p)))]))))
+  (cond
+   [(fail-result? result) result]
+   [else
+    (let ([p (force result)])
+      (cond
+       [(not p) fail-result]
+       [(send (car p) fail?) (filter-result (cdr p))]
+       [else (delay (cons (car p) (filter-result (cdr p))))]))]))
+
+(define (map-result fn result)
+  (cond
+   [(fail-result? result) result]
+   [else
+    (let ([p (force result)])
+      (cond
+       [(not p) fail-result]
+       [(send (car p) fail?) (map-result fn (cdr p))]
+       [else (delay (cons (fn (car p)) (map-result fn (cdr p))))]))]))
 
 (define state%
   (class* object% (equal<%> printable<%>)
@@ -106,7 +119,7 @@
 
     (define/public (narrow [n #f])
       (define answer-stream
-        (send this augment (delay (cons (new state%) (delay #f)))))
+        (send this augment (delay (cons (new state%) fail-result))))
       (define result
         (take-result answer-stream n))
       (if query (map (lambda (state) (send state reify query)) result) result))
@@ -191,12 +204,6 @@
           (send (send thing update state^) combine state)))
       updated-store)
 
-    (define/public (augment-stream stream)
-      (for/fold
-        ([stream (stream-map (lambda (state) (add-subst state)) stream)])
-        ([thing store])
-        (send thing augment-stream stream)))
-
     (define/public (trivial?)
       (and (null? subst) (null? store)))
 
@@ -208,17 +215,12 @@
     ;; Result is a [Delay [Maybe (cons State Result)]]
     ;; Result -> Result
     (define/public (augment result)
-      (lazy (augment-store (augment-subst result))))
-    
-    ;; Result -> Result
-    (define/public (augment-subst result)
-      (lazy (let ([result (force result)])
-              (and result (cons (add-subst (car result))
-                                (augment-subst (cdr result)))))))
-
-    (define/public (augment-store result)
-      (for/fold ([result result]) ([thing store])
-        (send thing augment result)))))
+      (let loop ([store store]
+                 [result (map-result (lambda (state) (add-subst state)) result)])
+        (cond
+         [(null? store) result]
+         [(fail-result? result) fail-result]
+         [else (delay (loop (cdr store) (send (car store) augment result)))])))))
 
 ;; check-scope : 
 ;;   [List-of EigenVar] [List-of CVar] [List-of [List-of CVar]] -> Boolean
@@ -261,6 +263,9 @@
   ;; returns the total set of related variables at the end
   (set->list (loop X related)))
 
+(define fail-result (delay #f))
+(define (fail-result? x) (eq? x fail-result))
+
 (define fail%
   (class* state% (printable<%>)
     (init-field [trace #f])
@@ -284,8 +289,7 @@
     (define/override (update state) this)
     (define/override (combine state) this)
     (define/override (trivial?) #f)
-    (define/override (augment-stream stream) empty-stream)
-    (define/override (augment result) (delay #f))))
+    (define/override (augment result) fail-result)))
 
 (define fail (new fail%))
 (define succeed (new state%))

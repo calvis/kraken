@@ -58,7 +58,7 @@
              (engine-run num (engine (lambda (y) expr))))))]))
 
 (define-syntax-rule (check-quick-termination expr)
-  (check-termination-macro 200 expr))
+  (check-termination-macro 100 expr))
 (define-syntax-rule (check-long-termination expr)
   (check-termination-macro 10000 expr))
 
@@ -125,23 +125,19 @@
    (send (new state%) update (new state% [subst `((,x . 5))]))
    (new state%))
 
-  (check-true
-   (stream-empty? (send (new fail%) 
-                        augment-stream (list (new state%)))))
-
   (check-false
-   (force (send (new fail%) augment (delay (cons (new state%)) #f))))
+   (force (send (new fail%) augment (delay (cons (new state%) fail-result)))))
 
   (check-equal?
    (take-result
-    (send (new state%) augment (delay (cons (new state%) (delay #f))))
+    (send (new state%) augment (delay (cons (new state%) fail-result)))
     #f)
    (list (new state%)))
 
   (check-equal?
    (take-result
     (send (new state% [subst `((,x . 5))]) 
-          augment (delay (cons (new state%) (delay #f))))
+          augment (delay (cons (new state%) fail-result)))
     #f)
    (list (new state% [subst `((,x . 5))]))))
 
@@ -375,7 +371,27 @@
     (send (==> (≡ x 5) (≡ y 6)) 
           augment (delay (cons (new state%) (delay #f))))
     #f)
-   (list (new state% [subst `((,y . 6) (,x . 5))]))))
+   (list (new state% [subst `((,y . 6) (,x . 5))])))
+
+  (check-equal?
+   (take-result
+    (send (==> fail (cdr@ '() x)) 
+          augment (delay (cons (new state%) (delay #f))))
+    #f)
+   (list))
+
+  (check-equal?
+   (take-result
+    (send (==> fail (disj (== (cdr@ '() x) 5) (== (cdr@ '() x) 5))) 
+          augment (delay (cons (new state%) (delay #f))))
+    #f)
+   (list))
+
+  (define@ (foo x)
+    (==> fail (foo (cdr@ (list)))))
+
+  (check-quick-termination
+   (take-result (send (foo x) augment (delay (cons (new state%) (delay #f)))) #f)))
 
 (define-dependency-test not-tests
   (associate-tests conj-tests disj-tests)
@@ -392,13 +408,36 @@
   (associate-tests conj-tests disj-tests shape-tests ==>-tests not-tests)
 
   (define@ (foo x)
-    (==> (shape x (cons (any) (any)))
-         (disj (== x (cons 1 2)) (foo (cdr@ x)))))
+    (==> (shape x (list))
+         (disj (== x (list)) (foo x))))
 
   ;; x is never a pair, so the conj should never be joined
   ;; if succeed triggers joining, this infinite loops
   (check-quick-termination (foo x))
-  (check-quick-termination (run (foo x) 2)))
+  (check-quick-termination (run (foo x) 1))
+  (check-quick-termination (run (foo x) 2))
+
+  (define@ (bar@ x)
+    (disj (== x 5) (==> (== y 6) (conj (bar@ x) (bar@ x)))))
+  
+  (check-quick-termination
+   (send (bar@ x) augment (delay (cons (new state%) fail-result))))
+
+  (bar)
+  (check-quick-termination
+   (force (send (bar@ x) augment (delay (cons (new state%) fail-result)))))
+
+  (check-quick-termination
+   (force
+    (cdr (force (send (bar@ x) augment
+                      (delay (cons (new state%) fail-result)))))))
+
+  (check-equal?
+   (force
+    (cdr (force (send (bar@ x) augment
+                      (delay (cons (new state%) fail-result))))))
+   '?)
+)
 
 (define-dependency-test eigen-tests
   (operator-tests)
@@ -861,28 +900,6 @@
 
   (check-one-answer
    (⊢@ `() `(app (lambda (x) (var x)) (num 5)) `int))
-
-  (check-quick-termination
-   (send (≡ `int `int)
-         augment-stream 
-         (list (let ([a (var 'a)])
-                 (new state% 
-                      [subst `((,(var 'd) . ())
-                               (,(var 'd) . ,a)
-                               (,(var 'a) . num)
-                               (,(var 'x) . (num ,a)))])))))
-  
-  (check-quick-termination
-   (send
-    (lookup@ `() (car@ (cdr@ x)) `int)
-    augment-stream
-    (list
-     (let ([a (var 'a)])
-       (new state% 
-            [subst `((,(var 'd) . ())
-                     (,(var 'd) . (,a))
-                     (,(var 'a) . var)
-                     (,x . (var ,a)))])))))
 
   (check-quick-termination
    (send (⊢@ `() x `int) augment (delay (cons (new state%) (delay #f)))))
