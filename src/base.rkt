@@ -24,7 +24,8 @@
 (require "interfaces.rkt"
          "states.rkt"
          "data.rkt"
-         "operators.rkt")
+         "operators.rkt"
+         "infs.rkt")
 (provide (all-defined-out))
 
 ;; =============================================================================
@@ -197,7 +198,8 @@
       (let ([x (send state walk (car rands))])
         (cond
          [(var? x) (new this% [rands (list x)])]
-         [else (with-handlers ([exn:fail? (lambda (e) (new fail% [trace e]))])
+         [else (with-handlers 
+                 ([exn:fail? (lambda (e) (new fail% [trace e]))])
                  (if (pred? x) succeed fail))])))))
 
 ;; -----------------------------------------------------------------------------
@@ -246,60 +248,12 @@
     (super-new)
     (define/override (get-sexp-rator) 'list@)
     (define/public (body ls)
-      (disj (==> (shape ls (list)))
-            (==> (shape ls (cons (any) (any)))
-                 (list@ (cdr@ ls)))))))
+      (project ls
+        [(list)]
+        [(cons a d) (list@ d)]))))
 
 (define (list@ ls)
   (new (partial-attribute-mixin list%) [rands (list ls)]))
-
-;; -----------------------------------------------------------------------------
-
-(define shape%
-  (class relation%
-    (super-new)
-    (inherit-field rands)
-    (match-define (list x t) rands)
-
-    (define/augment (update state)
-      (let ([x (send state walk x)]
-            [t (send state walk t)])
-        (cond
-         [(any? t) succeed]
-         [(and (pair? x) (pair? t))
-          (send (conj (shape (car x) (car t))
-                      (shape (cdr x) (cdr t)))
-                update state)]
-         [(symbol? t) (send (== x t) update state)]
-         [(null? t) (send (== x `()) update state)]
-         [(and (not (var? x)) (pair? t)) 
-          (new fail% [trace this])]
-         [else (shape x t)])))
-
-    (define/override (augment state)
-      (let loop ([x x] [t t] [state state])
-        (let ([x (send state walk x)]
-              [t (send state walk t)])
-          (cond
-           [(any? t) state]
-           [(and (pair? x) (pair? t))
-            (loop (cdr x) (cdr t)
-                  (loop (car x) (car t) state))]
-           [(symbol? t) (send state associate x t)]
-           [(null? t) (send state associate x `())]
-           [(and (not (var? x)) (pair? t)) 
-            (new fail% [trace this])]
-           [(pair? t)
-            (let ([a (var 'a)] [d (var 'd)])
-              (loop d (cdr t)
-                    (loop a (car t) 
-                          (send state associate (cons a d) x))))]
-           [else (error 'shape "augment stream: ~a ~a" x t)]))))))
-
-(define (shape x t) (new shape% [rands (list x t)]))
-
-(define-syntax-rule (case-shape x [t clause] ...)
-  (disj (==> (shape x `t) clause) ...))
 
 (define (functionable-constraint% prim)
   (class* relation% (functionable<%>)
@@ -315,10 +269,9 @@
          [(ormap (lambda (r) (or (var? r) (object? r))) rands) 
           (new this% [rands rands])]
          [else 
-          (apply prim rands)
-          #;
-          (with-handlers ([exn:fail? (lambda (e) (k (new fail% [trace (object-name e)])))])
-            )])))
+          (with-handlers 
+            ([exn:fail? (lambda (e) (k (new fail% [trace (object-name e)])))])
+            (apply prim rands))])))
 
     (define/public (->rel v state)
       (send (new this% [rands (append rands (list v))]) run state))
@@ -330,10 +283,9 @@
           (new this% [rands rands])]
          [else 
           (define rrands (reverse rands))
-          #;
-          (with-handlers ([exn:fail? (lambda (e) (new fail% [trace (object-name e)]))])
-            )
-          (== (apply prim (reverse (cdr rrands)))
+          (== (with-handlers 
+                ([exn:fail? (lambda (e) (new fail% [trace (object-name e)]))])
+                (apply prim (reverse (cdr rrands))))
               (car rrands))])))))
 
 (define (car@ . rands)
@@ -369,4 +321,3 @@
     (define/override (augment result)
       (define new-partial (or partial (send this body . rands)))
       (send new-partial augment result))))
-

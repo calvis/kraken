@@ -26,61 +26,10 @@
 (require (for-syntax racket/base syntax/parse))
 
 (require "data.rkt"
-         "interfaces.rkt")
+         "interfaces.rkt"
+         "infs.rkt")
 
 (provide (all-defined-out))
-
-(define mzerof (lambda () #f))
-(define choiceg cons)
-
-;; the failure value
-(define mzerom (mzerof))
-
-(define mplusm
-  (lambda (a-inf f)
-    (case-inf a-inf
-      (() (f))
-      ((f^) (delay (mplusm (f) f^)))
-      ((a) (choiceg a f))
-      ((a f^) (choiceg a (delay (mplusm (f) f^)))))))
-
-;; applies a goal to an a-inf and returns an a-inf
-(define (bindm a-inf fn)
-  (case-inf a-inf
-            [() (mzerof)]
-            [(f) (delay (bindm (f) fn))]
-            [(thing) (fn thing)]
-            [(thing f) (mplusm (fn thing)
-                               (delay (bindm (f) fn)))]))
-
-;; macro that delays expressions
-(define-syntax (lambdaf@ stx)
-  (syntax-parse stx
-    [(lambdaf@ () e) 
-     (syntax/loc stx (lambda () e))]))
-
-;; delays an expression
-(define-syntax delay
-  (syntax-rules ()
-    [(_ e) (lambdaf@ () e)]))
-
-(define empty-f (delay (mzerof)))
-
-;; convenience macro for dispatching on the type of a-inf
-(define-syntax case-inf
-  (syntax-rules ()
-    ((_ e (() e0) ((f^) e1) ((a^) e2) ((a f) e3))
-     (let ([a-inf e])
-       (cond
-        [(not a-inf) e0]
-        [(and (is-a? a-inf state%)
-              (send a-inf fail?))
-         e0]
-        [(procedure? a-inf) 
-         (let ([f^ a-inf]) e1)]
-        [(not (and (pair? a-inf) (procedure? (cdr a-inf))))
-         (let ([a^ a-inf]) e2)]
-        [else (let ([a (car a-inf)] [f (cdr a-inf)]) e3)])))))
 
 (define state%
   (class* object% (equal<%> printable<%>)
@@ -304,34 +253,9 @@
     (define/override (combine state) this)
     (define/override (trivial?) #f)))
 
-(define fail (new fail%))
 (define succeed (new state%))
+(define fail (new fail%))
 
 (define (filter-not-fail stream)
   (stream-filter (compose not (curryr is-a? fail%)) stream))
-
-
-;; =============================================================================
-;; reification
-
-(define (extend-rs v s)
-  `((,v . ,(reify-n v (size-s s))) . ,s))
-
-(define (reify-s v^ s)
-  (define v (walk/internal v^ s))
-  (cond
-   [(cvar? v)
-    (extend-rs v s)]
-   [(pair? v) 
-    (reify-s (cdr v) (reify-s (car v) s))]
-   [(tree? v)
-    (for/fold ([s s]) ([node (tree-nodes v)])
-      (reify-s node s))]
-   [else s]))
-
-(define (filter* f t)
-  (cond
-   [(f t) (list t)]
-   [(pair? t) (append (filter* f (car t)) (filter* f (cdr t)))]
-   [else (list)]))
 

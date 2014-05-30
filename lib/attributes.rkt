@@ -23,19 +23,19 @@
 (provide (all-defined-out))
 
 ;; -----------------------------------------------------------------------------
-;; dots@
+;; list-of@
 
-(define dots%
+(define list-of%
   (class list%
     (super-new)
-    (define/override (get-sexp-rator) 'dots@)
+    (define/override (get-sexp-rator) 'list-of@)
     (define/override (body ls fn)
-      (disj (==> (shape ls (list)))
-            (==> (shape ls (cons (any) (any)))
-                 (conj (fn (car@ ls)) (dots@ fn (cdr@ ls))))))))
+      (project ls
+        [(list)]
+        [(cons a d) (conj (fn a) (list-of@ fn d))]))))
 
-(define (dots@ fn ls)
-  (new (partial-attribute-mixin dots%) [rands (list ls fn)]))
+(define (list-of@ fn ls)
+  (new (partial-attribute-mixin list-of%) [rands (list ls fn)]))
 
 ;; =============================================================================
 ;; length@

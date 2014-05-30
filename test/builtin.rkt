@@ -125,9 +125,8 @@
    (send succeed run (new state%))
    (new state%))
 
-  (check-equal?
-   (send fail run (new state%))
-   mzerom)
+  (check-false
+   (send fail run (new state%)))
 
   (check-equal?
    (run succeed)
@@ -177,12 +176,7 @@
 
   (check-equal? 
    (run (≡ x '()))
-   (list (new state% [subst `((,x . ()))])))
-
-  (check-equal?
-   (send (new state% [store (list (≡ (cdr@ (list 1)) (list)))])
-         update (new state%))
-   (new state%)))
+   (list (new state% [subst `((,x . ()))]))))
 
 
 (define-dependency-test conj-tests 
@@ -266,79 +260,6 @@
               (disj (≡ x 5) (≡ x 6))))
    (run (disj (≡ x 5) (≡ x 6)))))
 
-(define-dependency-test shape-tests
-  (conj-tests)
-
-  (check-equal?
-   (send (shape (cons 1 2) (cons (any) (any)))
-         update (new state%))
-   (new state%)))
-
-(define-dependency-test ==>-tests
-  (shape-tests)
-
-  (let ([c (==> (shape 4 (list)))])
-    (check-not-false
-     (send (new state% [store (list c)]) has-stored c)))
-
-  (check-equal?
-   (send (new state% [store (list (==> (shape 4 (list))))])
-         update (new state%))
-   (new fail%))
-
-  (check-equal?
-   (send (new state% [store (list (==> (≡ x 5)))])
-         associate x 5)
-   (new state% [subst `((,x . 5))]))
-
-  (check-equal?
-   (send (new ==>%
-              [test (send (new state%) associate x 5)]
-              [consequent succeed])
-         update (send (new state%) associate x 5))
-   (new state%))
-
-  (check-equal?
-   (send (new state% [store (list (==> (≡ x 5)))])
-         update (new state% [subst `((,x . 5))]))
-   (new state%))
-
-  (check-equal?
-   (send (new state% [store (list (==> (==> (≡ x 5))))])
-         update (new state% [subst `((,x . 5))]))
-   (new state%))
-
-  (check-equal?
-   (send (send (==> (==> (≡ x 5)))
-               combine (new state%))
-         update (new state% [subst `((,x . 5))]))
-   (new state%))
-
-  (check-equal?
-   (query (z)
-          (conj (==> (==> (≡ x 5))
-                     (≡ z 5))
-                (≡ x 5)))
-   '(5))
-
-  (check-equal?
-   (query (z)
-          (conj (==> (conj (==> (≡ x 5)
-                                (≡ y 6))
-                           (≡ y 6))
-                     (≡ z 5))
-                (≡ x 5) (≡ y 6)))
-   '(5))
-
-  (check-equal?
-   (run (==> fail (car@ '() 5)))
-   (run (new fail%)))
-
-  (check-equal?
-   (run (conj (==> (shape x (cons (any) (any))))
-              (== x (list 1 2 3))))
-   (run (== x (list 1 2 3)))))
-
 ;; (define-dependency-test not-tests
 ;;   (associate-tests conj-tests disj-tests)
 ;;   
@@ -350,7 +271,6 @@
 ;;    (send (! (conj (≡ x 5) (≡ y 6))) update (new state%))
 ;;    (send (disj (! (≡ y 6)) (! (≡ x 5))) update (new state%))))
 ;; 
-
 
 (define-dependency-test project-tests
   (associate-tests conj-tests disj-tests)
@@ -370,8 +290,7 @@
    (run (== x (list)))))
 
 (define-dependency-test operator-tests
-  (associate-tests conj-tests disj-tests shape-tests ==>-tests
-                   project-tests)
+  (associate-tests conj-tests disj-tests project-tests)
 
   (define foo@
     (lambda@ (x)
@@ -669,40 +588,33 @@
                              (dom@ n (range-dom 1 5)))))])
     (check-equal? (length answer) 15)))
 
-(define-dependency-test dots-tests
+(define-dependency-test list-of-tests
   (operator-tests list-tests tree-tests length-tests)
 
   (define (uw5 v) (≡ v 5))
 
   (check-equal?
-   (send (disj (==> (shape (list x) (list)))
-               (==> (shape (list x) (cons (any) (any)))
-                    (conj (≡ x 5) (dots@ uw5 (cdr@ (list x))))))
-         update (new state%))
-   (new state% [subst `((,x . 5))]))
-
-  (check-equal?
-   (query 1 (x) (dots@ uw5 (list x)))
+   (query 1 (x) (list-of@ uw5 (list x)))
    '(5))
 
   (check-equal?
-   (query 1 (x) (dots@ (lambda (v) (≡ v 5)) (list x x x)))
+   (query 1 (x) (list-of@ (lambda (v) (≡ v 5)) (list x x x)))
    '(5))
 
   (check-equal?
-   (query 2 (x) (dots@ (lambda (v) (≡ v 5)) (list x x x)))
+   (query 2 (x) (list-of@ (lambda (v) (≡ v 5)) (list x x x)))
    '(5))
 
   (check-equal?
    (tree@ x)
-   (dots@ (lambda (v) succeed) x))
+   (list-of@ (lambda (v) succeed) x))
 
   (check-equal?
-   (run (conj (tree@ x) (dots@ (lambda (v) succeed) x)) 1)
-   (run (dots@ (lambda (v) succeed) x) 1))
+   (run (conj (tree@ x) (list-of@ (lambda (v) succeed) x)) 1)
+   (run (list-of@ (lambda (v) succeed) x) 1))
 
   (check-equal? 
-   (query (x) (conj (length@ x 3) (dots@ (lambda (v) (≡ v 5)) x)))
+   (query (x) (conj (length@ x 3) (list-of@ (lambda (v) (≡ v 5)) x)))
    '((5 5 5))))
 
 (define-dependency-test ground-attribute-tests
@@ -718,26 +630,16 @@
    (conj (symbol@ x) (number@ x))))
 
 (define-dependency-test stlc-tests
-  (operator-tests dots-tests eigen-tests)
+  (operator-tests list-of-tests eigen-tests)
 
   (define@ (lookup@ gamma x t)
-    (==> (shape gamma (cons (any) (any)))
-         (disj
-          (≡ (car@ gamma) `(,x . ,t))
-          (exists (y s)
-            (conj (≡ (car@ gamma) `(,y . ,s))
-                  (lookup@ (cdr@ gamma) x t))))))
-  
-  (check-one-answer
-   (≡ (car@ `((x . int))) (cons `x `int)))
-
-  (check-one-answer
-   (==> (shape `((x . int)) (cons (any) (any)))
-        (≡ (car@ `((x . int))) (cons `x `int))))
-
-  (check-one-answer
-   (==> (shape `((x . int)) (cons (any) (any)))
-        (disj (≡ `(x . int) `(x . int)) (lookup@ `() `x `int))))
+    (project gamma
+      [(cons a d)
+       (disj
+        (≡ a `(,x . ,t))
+        (exists (y s)
+          (conj (≡ a `(,y . ,s))
+                (lookup@ d x t))))]))
   
   (check-run-succeed
    (lookup@ `((x . int)) `x `int))
@@ -777,9 +679,6 @@
                (⊢@ gamma arg t1)))]))
   
   (check-run-fail
-   (==> (shape `(num 5) `(var ,x)) succeed))
-
-  (check-run-fail
    (⊢@ `() `(var x) `int))
   
   (check-run-succeed
@@ -794,17 +693,6 @@
 
   (check-one-answer
    (⊢@ `() `(lambda (x) (var x)) `(-> int int)))
-
-  (check-one-answer
-   (==> (shape `(app (lambda (x) (var x)) (num 5)) `(app ,(any) ,(any)))
-        (conj (⊢@ `() `(lambda (x) (var x)) `(-> int int))
-              (⊢@ `() `(num 5) `int))))
-
-  (check-one-answer
-   (==> (shape `(app (lambda (x) (var x)) (num 5)) `(app ,(any) ,(any)))
-        (exists (t1)
-          (conj (⊢@ `() `(lambda (x) (var x)) `(-> ,t1 int))
-                (⊢@ `() `(num 5) t1)))))
 
   (check-one-answer
    (exists (body)
@@ -840,7 +728,15 @@
    (query 5 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int))))
 
   (check-run-succeed
-   (forall (e) (⊢@ `() `(num ,e) `int))))
+   (forall (e) (⊢@ `() `(num ,e) `int)))
+
+  (check-equal?
+   (query (x) (⊢@ `((x . int)) `(lambda (,x) (var x)) `(-> int int)))
+   '(x lv.0))
+  
+  (check-equal?
+   (query (stuff) (⊢@ `((x . int)) `(lambda ,stuff (var x)) `(-> int int)))
+   '((x) (lv.0))))
 
 (define builtin-test-suite
   (test-suite 
@@ -850,9 +746,6 @@
    (time (associate-tests))
    (time (conj-tests))
    (time (disj-tests))
-   (time (shape-tests))
-   (time (==>-tests))
-;;    (time (not-tests))
    (time (project-tests))
    (time (operator-tests))
 
@@ -863,12 +756,13 @@
    (time (fd-tests))
    (time (tree-tests))
    (time (length-tests))
-   (time (dots-tests))
+   (time (list-of-tests))
 
    (time (stlc-tests))))
 
 (module+ test
-  (parameterize ([pretty-print-columns 102])
+  (parameterize ([pretty-print-columns 102]
+                 [print-reader-abbreviations #t])
     (time (void (run-tests builtin-test-suite)))))
 
 (module+ main

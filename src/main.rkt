@@ -28,7 +28,8 @@
          "states.rkt"
          "interfaces.rkt"
          "operators.rkt" 
-         "base.rkt")
+         "base.rkt"
+         "infs.rkt")
 
 (provide (all-from-out "data.rkt")
          (all-from-out "states.rkt")
@@ -65,6 +66,6 @@
 (define-syntax (define@ stx)
   (syntax-parse stx
     [(define@ (name@ args ...) interp)
-     #`(define name@ (lambda@ (args ...) interp))]))
+     #`(define name@ (lambda@ #:name name@ (args ...) interp))]))
 
 

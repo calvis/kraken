@@ -19,7 +19,7 @@
 (require racket/class racket/function racket/list racket/pretty racket/stream
          (except-in racket/match ==))
 (require (for-syntax racket/base syntax/parse racket/syntax))
-(require "states.rkt" "data.rkt")
+(require "states.rkt" "data.rkt" "infs.rkt")
 
 (provide (all-defined-out))
 
@@ -56,11 +56,11 @@
     (define/public (sexp-me) #f)
 
     (define/public (custom-print p depth)
-      (display (sexp-me) p))
+      (write (sexp-me) p))
     (define/public (custom-write p)
-      (write   (sexp-me) p))
+      (write (sexp-me) p))
     (define/public (custom-display p) 
-      (display (sexp-me) p))))
+      (write (sexp-me) p))))
 
 ;; -----------------------------------------------------------------------------
 ;; associate
@@ -107,28 +107,38 @@
 
 ;; -----------------------------------------------------------------------------
 
+(define lambda%
+  (class operator%
+    (super-new)
+    (init-field sexp init [scope '()])
+    (define/override (sexp-me) sexp)
+    (define/public (run state)
+      (send (send (init) add-scope scope) run state))
+    (define/public (update state) 
+      (send (send (init) add-scope scope) update state))
+    (define/public (add-scope ls)
+      (new this% [sexp sexp] [init init] [scope (cons ls scope)]))
+    (define/public (combine state)
+      (send state set-stored this))
+    (define/public (augment state)
+      (delay
+        (bindm (send (send (init) add-scope scope) run state)
+               (lambda (state) (delay (send state augment))))))))
+
+(require (for-syntax racket/pretty))
 (define-syntax (lambda@ stx)
   (syntax-parse stx
-    [(lambda@ (args ...) body:expr)
-     #'(lambda (args ...)
-         (let ([init (lambda () body)])
-           (new (class operator%
-                  (super-new)
-                  (init-field [scope '()])
-                  (define/override (sexp-me)
-                    init)
-                  (define/public (run state)
-                    (send (send (init) add-scope scope) run state))
-                  (define/public (update state) 
-                    (send (send (init) add-scope scope) update state))
-                  (define/public (add-scope ls)
-                    (new this% [scope (cons ls scope)]))
-                  (define/public (combine state)
-                    (send state set-stored this))
-                  (define/public (augment state)
-                    (delay
-                      (bindm (send (send (init) add-scope scope) run state)
-                             (lambda (state) (delay (send state augment))))))))))]))
+    [(lambda@
+       (~optional (~seq #:name name))
+       (args ...) body:expr)
+     (define/with-syntax rel-name
+       (cond
+        [(attribute name) #'(object-name name)]
+        [else (pretty-format (car (syntax->list stx)))]))
+     (syntax/loc stx
+       (lambda (args ...)
+         (let ([th (lambda () body)])
+           (new lambda% [sexp (list rel-name args ...)] [init th]))))]))
 
 (define conj%
   (class operator%
@@ -332,26 +342,25 @@
 (define project%
   (class operator%
     (super-new)
-    (init-field t)
+    (init-field term pattern phase1 phase2)
+
+    (define/override (sexp-me)
+      (list (object-name this%) term pattern))
 
     (define/public (update state)
-      (let ([t (send state walk t)])
+      (let ([t (send state walk term)])
         (cond
          [(var? t) this]
-         [(send this phase1 t)
+         [(phase1 t)
           => (lambda (this^)
-               (send this^ update state))]
-         [else (send fail update state)])))
+               (cond
+                [(boolean? this^) this]
+                [else (send this^ update state)]))]
+         [else (new fail% [trace this])])))
 
     (define/public (augment state)
-      (let ([t (send state walk t)])
-        (cond
-         [(var? t) 
-          (send (send this phase2 t) augment state)]
-         [(send this phase1 t)
-          => (lambda (this^)
-               (send this^ augment state))]
-         [else (send fail augment state)])))
+      (let ([t (send state walk term)])
+        (send (phase2 t) augment state)))
 
     (define/public (run state)
       (send (update state) combine state))
@@ -360,30 +369,83 @@
 
     (define/public (add-scope ls) this)))
 
-(define-for-syntax (walk-pattern stx)
+(require (for-syntax racket/function))
+
+(define-for-syntax (walk-pattern stx quoted?)
   (syntax-parse stx
     [((~literal unquote) x:id)
+     #:fail-unless quoted? "unquote not inside quasiquote"
      (list #'x)]
+    [((~literal quasiquote) expr)
+     (walk-pattern #'expr #t)]
+    [((~literal cons) a d)
+     (append (walk-pattern #'a quoted?)
+             (walk-pattern #'d quoted?))]
+    [((~literal list) . d)
+     (apply append (map (curryr walk-pattern quoted?)
+                        (syntax->list #'d)))]
     [(a . d)
-     (append (walk-pattern #'a)
-             (walk-pattern #'d))]
-    [x (list)]))
+     (append (walk-pattern #'a quoted?)
+             (walk-pattern #'d quoted?))]
+    [x (if quoted? (list) (list #'x))]))
 
 (require (for-syntax racket/pretty))
+
+(define-for-syntax (commit-pattern stx thing quoted?)
+  (syntax-parse stx
+    [((~literal unquote) x:id)
+     #:fail-unless quoted? "unquote not inside quasiquote"
+     #'#t]
+    [((~literal quasiquote) expr)
+     #:when (not quoted?)
+     (commit-pattern #'expr thing #t)]
+    [((~literal cons) a d)
+     #:when (not quoted?)
+     #`(or (var? #,thing)
+           (and (pair? #,thing) 
+                #,(commit-pattern #'a #`(car #,thing) quoted?)
+                #,(commit-pattern #'d #`(cdr #,thing) quoted?)))]
+    [((~literal list))
+     #`(null? #,thing)]
+    [(a . d)
+     #:fail-unless quoted? "expected constructor"
+     #`(or (var? #,thing)
+           (and (pair? #,thing) 
+                #,(commit-pattern #'a #`(car #,thing) quoted?)
+                #,(commit-pattern #'d #`(cdr #,thing) quoted?)))]
+    [x:id
+     (cond
+      [quoted? #`(or (var? #,thing) (eq? #,thing 'x))]
+      [else #`t])]
+    [() 
+     #:fail-unless quoted? "app"
+     #`(or (var? #,thing) (null? #,thing))]))
+
 (define-syntax (project stx)
   (syntax-parse stx
-    [(project term:id [pat body] ...)
+    [(project project-term:id
+       [pat (~optional body #:defaults ([body #'succeed]))]
+       ...)
      (define/with-syntax ((vars ...) ...)
-       (map walk-pattern (syntax->list #'(pat ...))))
-     #'(new (class project%
-              (super-new)
-              (define/public (phase1 t)
-                (match t [pat body] ... [_ #f]))
-              (define/public (phase2 t)
-                (disj 
-                 (exists (vars ...) 
-                   (conj (== t pat) 
-                         (let ([term pat]) body)))
-                 ...)))
-            [t term])]))
+       (map (curryr walk-pattern #f)
+            (syntax->list #'(pat ...))))
+     (define/with-syntax (hope? ...)
+       (map (curryr commit-pattern #'t #f)
+            (syntax->list #'(pat ...))))
+     (define/with-syntax (phase1-body ...)
+       #'((lambda (t) (match t [pat body] [_ hope?]))
+          ...))
+     (define/with-syntax (phase2-body ...)
+       #'((lambda (t)
+            (exists (vars ...) 
+              (conj (== t pat) 
+                    (let ([term pat]) body))))
+          ...))
+     #'(disj
+        (new project%
+             [term project-term] 
+             [pattern 'pat]
+             [phase1 phase1-body]
+             [phase2 phase2-body])
+        ...)]))
 

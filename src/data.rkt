@@ -118,3 +118,30 @@
     (tree (map (curryr walk/internal s) (tree-nodes u)))]
    [else u]))
 
+
+;; =============================================================================
+;; reification
+
+(provide extend-rs reify-s filter*)
+
+(define (extend-rs v s)
+  `((,v . ,(reify-n v (size-s s))) . ,s))
+
+(define (reify-s v^ s)
+  (define v (walk/internal v^ s))
+  (cond
+   [(cvar? v)
+    (extend-rs v s)]
+   [(pair? v) 
+    (reify-s (cdr v) (reify-s (car v) s))]
+   [(tree? v)
+    (for/fold ([s s]) ([node (tree-nodes v)])
+      (reify-s node s))]
+   [else s]))
+
+(define (filter* f t)
+  (cond
+   [(f t) (list t)]
+   [(pair? t) (append (filter* f (car t)) (filter* f (cdr t)))]
+   [else (list)]))
+
