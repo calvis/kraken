@@ -439,7 +439,7 @@
        #'((lambda (t)
             (exists (vars ...) 
               (conj (== t pat) 
-                    (let ([term pat]) body))))
+                    (let ([project-term pat]) body))))
           ...))
      #'(disj
         (new project%

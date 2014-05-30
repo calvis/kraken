@@ -287,7 +287,12 @@
 
   (check-equal?
    (run (project x [(list) succeed]))
-   (run (== x (list)))))
+   (run (== x (list))))
+
+  (check-equal?
+   (query (x)
+     (project x [(cons a d) (conj (≡ a 5) (== (cdr x) 6))]))
+   '((5 . 6))))
 
 (define-dependency-test operator-tests
   (associate-tests conj-tests disj-tests project-tests)

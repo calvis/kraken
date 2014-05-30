@@ -109,7 +109,8 @@ Performs logical disjunction over @racket[clause]s.
          #:grammar ([maybe-body (code:line) body]
                     [pattern (quasiquote quasi-pattern)
                              (cons pattern pattern)
-                             (list)]
+                             (list)
+                             identifier]
                     [quasi-pattern (quasi-pattern ...)
                                    (unquote pattern)
                                    symbol])
@@ -131,3 +132,11 @@ disjunctively force-unified with each @racket[pattern].
   (project x [(cons a d) (≡ y 5)]))
 ]}
 
+Each @racket[identifier] in the pattern is also lexically bound within
+the @racket[body], as shown below.
+
+@examples[
+#:eval kr-eval
+(query (x)
+  (project x [(cons a d) (conj (≡ a 5) (== (cdr x) 6))]))
+]
