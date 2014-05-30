@@ -248,12 +248,12 @@
     (super-new)
     (define/override (get-sexp-rator) 'list@)
     (define/public (body ls)
-      (project ls
-        [(list)]
-        [(cons a d) (list@ d)]))))
+      (project ls [(list)] [(cons a d) (list@ d)]))))
 
 (define (list@ ls)
   (new (partial-attribute-mixin list%) [rands (list ls)]))
+
+;; -----------------------------------------------------------------------------
 
 (define (functionable-constraint% prim)
   (class* relation% (functionable<%>)
@@ -283,41 +283,18 @@
           (new this% [rands rands])]
          [else 
           (define rrands (reverse rands))
-          (== (with-handlers 
-                ([exn:fail? (lambda (e) (new fail% [trace (object-name e)]))])
-                (apply prim (reverse (cdr rrands))))
-              (car rrands))])))))
+          (send
+           (== (with-handlers 
+                 ([exn:fail? (lambda (e) (new fail% [trace (object-name e)]))])
+                 (apply prim (reverse (cdr rrands))))
+               (car rrands))
+           update state)])))))
 
 (define (car@ . rands)
-  (new (functionable-constraint% car) [rands rands]))
+  (new (functionable-constraint% car) 
+       [rands rands]))
 
 (define (cdr@ . rands)
-  (new (functionable-constraint% cdr) [rands rands]))
+  (new (functionable-constraint% cdr)
+       [rands rands]))
 
-(define (partial-mixin %)
-  (class % 
-    (super-new)
-    (inherit-field rands)
-    (init-field [partial #f])
-
-    (define/override (sexp-me)
-      (if partial
-          `(,(send this get-sexp-rator) ,@rands ,partial)
-          (super sexp-me)))
-
-    (define/public (update-partial partial)
-      (new this% [rands rands] [partial partial]))
-
-    (define/augride (update state)
-      (define new-partial
-        (or partial (send this body . rands)))
-      (define result
-        (send new-partial update state))
-      (cond
-       [(is-a? result disj%)
-        (send this update-partial result)]
-       [else result]))
-
-    (define/override (augment result)
-      (define new-partial (or partial (send this body . rands)))
-      (send new-partial augment result))))

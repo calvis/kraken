@@ -134,7 +134,7 @@
      (define/with-syntax rel-name
        (cond
         [(attribute name) #'(object-name name)]
-        [else (pretty-format (car (syntax->list stx)))]))
+        [else #`'#,(string->symbol (pretty-format (car (syntax->list stx))))]))
      (syntax/loc stx
        (lambda (args ...)
          (let ([th (lambda () body)])

@@ -51,12 +51,12 @@
 (struct -var cvar (name) #:transparent
         #:methods gen:equal+hash
         [(define (equal-proc x y recur?)
-           (and (recur? (-var-name x) (-var-name y))))
+           (and (recur? (cvar-x x) (cvar-x y))))
          (define (hash-proc x recur)
            (recur (cvar-x x)))
          (define (hash2-proc x recur)
            (recur (cvar-x x)))])
-(define (var x) (-var "lv" (gensym x) x))
+(define (var x) (-var "lv" x (gensym x)))
 (define (var? x) (-var? x))
 
 ;; =============================================================================

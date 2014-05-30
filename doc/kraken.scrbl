@@ -5,8 +5,17 @@
 @(require kraken scribble/eval)
 
 @title{Functional-Logical Programming in Kraken}
+@author[@author+email["Claire Alvis" "calvis@ccs.neu.edu"]]
 
 @defmodule[kraken #:lang]
+
+Kraken is a functional-logic programming language.  It is an attempt
+to integrate ideas from
+@hyperlink["http://miniKanren.org"]{miniKanren} and
+@hyperlink["http://racket-lang.org"]{Racket} in the smoothest way
+possible.  Although it is a spiritual successor to cKanren and
+miniKanren, Kraken does not make any attempt to be backwards
+compatible.
 
 @(define kr-eval (make-base-eval))
 @(interaction-eval #:eval kr-eval (require kraken))
@@ -115,11 +124,11 @@ Performs logical disjunction over @racket[clause]s.
                                    symbol])
          #:contracts ([body statement?])]{
 
-Lexically binds @racket[lv] to the value it has been unified with and
-then runs @racket[body].  If @racket[lv] is never unified, it is
-disjunctively force-unified with each @racket[pattern].  Each
-@racket[identifier] in the pattern is also lexically bound within the
-@racket[body].
+A @racket[statement?] that lexically binds @racket[lv] to the value it
+has been unified with and then runs @racket[body].  If @racket[lv] is
+never unified, it is disjunctively force-unified with each
+@racket[pattern].  Each @racket[identifier] in the pattern is also
+lexically bound within the @racket[body].
 
 @examples[
 #:eval kr-eval
@@ -131,11 +140,46 @@ disjunctively force-unified with each @racket[pattern].  Each
         (≡ x 5)))
 (query (x y) 
   (project x [(cons a d) (≡ y 5)]))
+(query (x)
+  (project x [(cons a d) (conj (≡ a 5) (== (cdr x) 6))]))
 ]}
 
+@section{Relations}
+
+@defform[(lambda@ (args ...) body)
+         #:contracts ([body statement?])]{
+
+Returns a relation that parameterizes @racket[body] over the
+@racket[args].  
 
 @examples[
 #:eval kr-eval
-(query (x)
-  (project x [(cons a d) (conj (≡ a 5) (== (cdr x) 6))]))
-]
+(define smile
+  (lambda@ (x)
+    (disj (≡ x ":)")
+          (≡ x ":-)"))))
+(exists (x) (smile x))
+(query (x) (smile x))
+]}
+
+@defform[(define@ (name args ...) body)
+         #:contracts ([body statement?])]{
+
+Defines a relation called @racket[name] where @racket[name] is used
+for error reporting and printing.
+
+@examples[
+#:eval kr-eval
+(define@ (lookup@ gamma x t)
+  (project gamma
+    [(cons a d)
+     (disj
+      (≡ a `(,x . ,t))
+      (exists (y s)
+        (conj (≡ a `(,y . ,s))
+              (lookup@ d x t))))]))
+(exists (x) (lookup@ `((y . int)) x `bool))
+(query (x) (lookup@ `((y . int)) x `int))
+(query (x) (lookup@ `((y . int)) x `bool))
+]}
+
