@@ -105,21 +105,29 @@ Performs logical disjunction over @racket[clause]s.
 (query (x y) (disj (≡ x y) (≡ y 5)))
 ]}
 
-@defproc[(==> [test statement?] [consequent statement?]) statement?]{
+@defform[(project lv [pattern maybe-body] ...)
+         #:grammar ([maybe-body (code:line) body]
+                    [pattern (quasiquote quasi-pattern)
+                             (cons pattern pattern)
+                             (list)]
+                    [quasi-pattern (quasi-pattern ...)
+                                   (unquote pattern)
+                                   symbol])
+         #:contracts ([body statement?])]{
 
-Performs logical implication.  When @racket[test] is true, the
-@racket[consequent] must also be true.  If @racket[test] is never true
-(provably false), the entire expression is equivalent to
-@racket[fail].
+Lexically binds @racket[lv] to the value it has been unified with and
+then runs @racket[body].  If @racket[lv] is never unified, it is
+disjunctively force-unified with each @racket[pattern].
 
 @examples[
 #:eval kr-eval
 (query (x y) 
-  (conj (==> (≡ x y) (≡ y 5))
-        (≡ x y)))
+  (conj (project x [(list) (≡ y 5)]) 
+        (≡ x (list))))
 (query (x y) 
-  (conj (==> (≡ x 5) (≡ y 5))
-        (≡ x 6)))
+  (conj (project x [(list) (≡ y 5)])
+        (≡ x 5)))
+(query (x y) 
+  (project x [(cons a d) (≡ y 5)]))
 ]}
-
 
