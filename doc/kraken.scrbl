@@ -118,7 +118,9 @@ Performs logical disjunction over @racket[clause]s.
 
 Lexically binds @racket[lv] to the value it has been unified with and
 then runs @racket[body].  If @racket[lv] is never unified, it is
-disjunctively force-unified with each @racket[pattern].
+disjunctively force-unified with each @racket[pattern].  Each
+@racket[identifier] in the pattern is also lexically bound within the
+@racket[body].
 
 @examples[
 #:eval kr-eval
@@ -132,8 +134,6 @@ disjunctively force-unified with each @racket[pattern].
   (project x [(cons a d) (≡ y 5)]))
 ]}
 
-Each @racket[identifier] in the pattern is also lexically bound within
-the @racket[body], as shown below.
 
 @examples[
 #:eval kr-eval
