@@ -49,7 +49,7 @@
     (define/override (update state)
       (cond
        [(send state get-stored this% x)
-        => (lambda (n) (== (cadr rands) n))]
+        => (lambda (n) (send (== (cadr rands) n) update state))]
        [else
         (let ([x (send state walk x)]
               [n (send state walk (cadr rands))])
@@ -57,7 +57,7 @@
            [(and (list? x) (number? n))
             (or (and (= (length x) n) succeed) fail)]
            [(list? x)
-            (== (length x) n)]
+            (send (== (length x) n) update state)]
            [(tree? x)
             (match-define (tree nodes) x)
             (define n* 
@@ -68,7 +68,8 @@
                            (length@ node n)))
                   update state)]
            [(number? n)
-            (== (for/list ([i n]) (var (gensym 'i))) x)]
+            (send (== (for/list ([i n]) (var (gensym 'i))) x)
+                  update state)]
            [else (new this% [rands (list x n)])]))]))
     
     (define/public (get-value) (cadr rands))))

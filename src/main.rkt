@@ -37,36 +37,34 @@
          (all-from-out "base.rkt")
          (all-defined-out))
 
-(define (run obj [n #f])
+(define (run obj [n #f] [term #f])
   (cond
-   [(send (conj obj) run (new state%))
-    => (lambda (state) (send state narrow n))]
-   [else '()]))
+   [(send (conj obj) all (new state%))
+    => (lambda (a-inf)
+         (let take ([n n] [f a-inf])
+           (cond
+            [(and n (zero? n)) '()]
+            [else
+             (case-inf (f)
+                       [() (list)]
+                       [(f) (take n f)]
+                       [(state) 
+                        (list (if term (send state reify term) state))]
+                       [(state f) 
+                        (cons (if term (send state reify term) state)
+                              (take (and n (sub1 n)) f))])])))]))
 
 (define-syntax (query stx)
   (syntax-parse stx
-    [(query (~optional n #:defaults ([n #'#f])) 
-            (x:id) 
-            side-effect-expr:expr ...
-            body:expr)
-     #'(run (exists (x) (send (conj body) add-query x)) n)]
-    [(query (~optional n #:defaults ([n #'#f]))
-            (x:id ...) 
-            side-effect-expr:expr ...
-            body:expr)
-     #'(run (exists (x ...) (send (conj body) add-query (list x ...))) n)]))
+    [(query (~optional n #:defaults ([n #'#f])) (x:id) body:expr)
+     #'(let ([x (var 'x)])
+         (run (conj body) n x))]
+    [(query (~optional n #:defaults ([n #'#f])) (x:id ...) body:expr)
+     #'(query (q) (exists (x ...) (conj (== q (list x ...)) body)))]))
 
 (define-syntax (define@ stx)
   (syntax-parse stx
     [(define@ (name@ args ...) interp)
-     #`(define (name@ args ...)
-         (define name%
-           (partial-mixin
-            (class relation%
-              (super-new)
-              (define/public (body args ...) interp)
-              (define/override (get-sexp-rator)
-                'name@))))
-         (new name% [rands (list args ...)]))]))
+     #`(define name@ (lambda@ (args ...) interp))]))
 
 

@@ -16,8 +16,9 @@
 
 #lang racket/base 
 
-(require racket/class racket/function racket/list racket/pretty
-         racket/stream racket/promise)
+(require racket/class racket/function racket/list racket/pretty racket/stream
+         (except-in racket/match ==))
+(require (for-syntax racket/base syntax/parse racket/syntax))
 (require "states.rkt" "data.rkt")
 
 (provide (all-defined-out))
@@ -101,43 +102,67 @@
     (define/public (add-scope ls)
       (new this% [x x] [v v] [scope (cons ls scope)]))
 
-    (define/public (augment result)
-      (map-result (lambda (state) (send state associate x v scope)) result))))
+    (define/public (augment state)
+      (delay (run state)))))
 
 ;; -----------------------------------------------------------------------------
-;; conjunction
+
+(define-syntax (lambda@ stx)
+  (syntax-parse stx
+    [(lambda@ (args ...) body:expr)
+     #'(lambda (args ...)
+         (let ([init (lambda () body)])
+           (new (class operator%
+                  (super-new)
+                  (init-field [scope '()])
+                  (define/override (sexp-me)
+                    init)
+                  (define/public (run state)
+                    (send (send (init) add-scope scope) run state))
+                  (define/public (update state) 
+                    (send (send (init) add-scope scope) update state))
+                  (define/public (add-scope ls)
+                    (new this% [scope (cons ls scope)]))
+                  (define/public (combine state)
+                    (send state set-stored this))
+                  (define/public (augment state)
+                    (delay
+                      (bindm (send (send (init) add-scope scope) run state)
+                             (lambda (state) (delay (send state augment))))))))))]))
 
 (define conj%
   (class operator%
     (super-new)
     (init-field [clauses '()] [query #f])
-    
+
     (define/override (sexp-me)
       (cons (object-name this%) clauses))
 
     (define/public (run state)
-      (define result
-        (for/fold ([state state]) ([thing clauses])
-          (send thing run state)))
-      (if query (send result add-query query) result))
+      (delay (for/fold ([a-inf state]) ([g clauses])
+               (bindm a-inf (lambda (state) (send g run state))))))
+
+    (define/public (all state)
+      (delay (bindm (run state) (lambda (state) (send state augment)))))
     
     (define/public (combine state)
       (for/fold ([state state]) ([thing clauses])
         (send thing combine state)))
 
     (define/public (update state^)
-      (send (run (new state%)) update state^))
+      (send (new state% [store clauses]) update state^))
 
     (define/public (add-scope ls)
-      (define new-clauses 
+      (define new-clauses
         (map (lambda (thing) (send thing add-scope ls)) clauses))
       (new conj% [clauses new-clauses] [query query]))
-    
+
     (define/public (add-query t)
       (new this% [clauses clauses] [query t]))
 
-    (define/public (augment result)
-      (send (new state% [store clauses]) augment result))))
+    (define/public (augment state)
+      (delay (for/fold ([a-inf state]) ([g clauses])
+               (bindm a-inf (lambda (state) (send g augment state))))))))
 
 (define (conj . clauses)
   (new conj% [clauses clauses]))
@@ -175,45 +200,31 @@
        [else (new disj% [states result])]))
 
     (define/public (run state)
-      (send (update state) combine state))
+      (delay (let loop ([states states])
+               (cond
+                [(null? (cdr states)) 
+                 (send (car states) run state)]
+                [else (mplusm (send (car states) run state)
+                              (delay (loop (cdr states))))]))))
+
     (define/public (combine state)
       (cond
        [(send state has-stored this) state]
        [else (send state set-stored this)]))
 
-    (define/public (augment result)
-      (result-interleave
-       (stream-map (lambda (state) (send state augment result)) states)))
-
     (define/public (add-scope ls)
-      (new disj% [states (map (lambda (ss) (send ss add-scope ls)) states)]))))
+      (new disj% [states (map (lambda (ss) (send ss add-scope ls)) states)]))
 
-;; [List-of Result] -> Result
-(define (result-interleave stream-result)
-  (cond
-   [(stream-empty? stream-result) fail-result]
-   [else (let loop ([r* stream-result] [r*^ '()])
-           (cond
-            [(stream-empty? r*)
-             (result-interleave (reverse r*^))]
-            [else (let ([p (force (stream-first r*))])
-                    (cond
-                     [(not p) (loop (stream-rest r*) r*^)]
-                     [else (delay (cons (car p) (loop (stream-rest r*) (cons (cdr p) r*^))))]))]))]))
+    (define/public (augment state)
+      (delay (let loop ([states states])
+               (cond
+                [(null? (cdr states)) 
+                 (send (car states) augment state)]
+                [else (mplusm (send (car states) augment state)
+                              (delay (loop (cdr states))))]))))))
 
 (define (disj . clauses)
   (new disj% [states clauses]))
-
-(define (stream-interleave ls)
-  (let ([ls (filter (compose not stream-empty?) ls)])
-    (cond
-     [(null? ls) empty-stream]
-     [else
-      (let loop ([ls^ ls])
-        (cond
-         [(null? ls^) (stream-interleave (map stream-rest ls))]
-         [else (stream-cons (stream-first (car ls^))
-                            (loop (cdr ls^)))]))])))
 
 ;; -----------------------------------------------------------------------------
 ;; implies
@@ -237,9 +248,12 @@
     (define/public (update state)
       (define test^ (send test update state))
       (cond
-       [(send test^ trivial?) 
-        (send consequent update state)]
-       [(send test^ fail?) test^]
+       [(is-a? test^ state%)
+        (cond
+         [(send test^ trivial?) 
+          (send consequent update state)]
+         [(send test^ fail?) test^]
+         [else (new ==>% [test test^] [consequent consequent])])]
        [else (new ==>% [test test^] [consequent consequent])]))
 
     (define/public (run state)
@@ -252,15 +266,13 @@
            [test (send test add-scope ls)]
            [consequent (send consequent add-scope ls)]))
 
-    (define/public (augment result)
-      (cond
-       [(fail-result? result) result]
-       [else (send consequent augment (filter-result (send test augment result)))]))))
+    (define/public (augment state)
+      (delay
+        (bindm (send test augment state)
+               (lambda (state) (delay (send consequent augment state))))))))
 
 (define (==> t [c succeed]) 
-  (new ==>% 
-       [test (send t run (new state%))]
-       [consequent c]))
+  (new ==>% [test t] [consequent c]))
 
 ;; -----------------------------------------------------------------------------
 ;; not
@@ -313,3 +325,65 @@
 
 (define (! stmt)
   (new not% [stmt (send stmt update (new state%))]))
+
+
+;; -----------------------------------------------------------------------------
+
+(define project%
+  (class operator%
+    (super-new)
+    (init-field t)
+
+    (define/public (update state)
+      (let ([t (send state walk t)])
+        (cond
+         [(var? t) this]
+         [(send this phase1 t)
+          => (lambda (this^)
+               (send this^ update state))]
+         [else (send fail update state)])))
+
+    (define/public (augment state)
+      (let ([t (send state walk t)])
+        (cond
+         [(var? t) 
+          (send (send this phase2 t) augment state)]
+         [(send this phase1 t)
+          => (lambda (this^)
+               (send this^ augment state))]
+         [else (send fail augment state)])))
+
+    (define/public (run state)
+      (send (update state) combine state))
+    (define/public (combine state)
+      (send state set-stored this))
+
+    (define/public (add-scope ls) this)))
+
+(define-for-syntax (walk-pattern stx)
+  (syntax-parse stx
+    [((~literal unquote) x:id)
+     (list #'x)]
+    [(a . d)
+     (append (walk-pattern #'a)
+             (walk-pattern #'d))]
+    [x (list)]))
+
+(require (for-syntax racket/pretty))
+(define-syntax (project stx)
+  (syntax-parse stx
+    [(project term:id [pat body] ...)
+     (define/with-syntax ((vars ...) ...)
+       (map walk-pattern (syntax->list #'(pat ...))))
+     #'(new (class project%
+              (super-new)
+              (define/public (phase1 t)
+                (match t [pat body] ... [_ #f]))
+              (define/public (phase2 t)
+                (disj 
+                 (exists (vars ...) 
+                   (conj (== t pat) 
+                         (let ([term pat]) body)))
+                 ...)))
+            [t term])]))
+

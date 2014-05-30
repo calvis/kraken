@@ -20,7 +20,6 @@
          racket/function
          racket/stream
          racket/list
-         racket/promise
          (except-in racket/match ==))
 (require "interfaces.rkt"
          "states.rkt"
@@ -73,26 +72,27 @@
     (define/public (add-scope ls)
       (new this% [rands rands] [scope (cons ls scope)]))
 
-    (define/public (augment-state state)
+    (define/public (augment state)
       (call/cc 
        (lambda (k)
          (let ([rands (map (update-functionable state k) rands)])
            (cond
             [(findf (curryr is-a? functionable<%>) rands)
-             (define-values (new-state new-rands)
-               (for/fold ([state state] [rands '()]) ([r rands])
+             (define-values (a-inf new-rands)
+               (for/fold ([a-inf state] [rands '()]) ([r rands])
                  (cond
                   [(is-a? r functionable<%>)
                    (let ([out (var 'out)])
-                     (values (send r ->rel out state)
+                     (values (bindm a-inf
+                                    (lambda (state)
+                                      (send r ->rel out state)))
                              (cons out rands)))]
                   [else (values state (cons r rands))])))
-             (send (send this update-rands (reverse new-rands))
-                   run new-state)]
+             (bindm a-inf
+                    (lambda (state)
+                      (send (send this update-rands (reverse new-rands))
+                            run state)))]
             [else (send this run state)])))))
-
-    (define/public (augment result)
-      (map-result (lambda (state) (augment-state state)) result))
 
     (define/public (merge obj state)
       (cond
@@ -265,7 +265,7 @@
       (let ([x (send state walk x)]
             [t (send state walk t)])
         (cond
-         [(any? t) state]
+         [(any? t) succeed]
          [(and (pair? x) (pair? t))
           (send (conj (shape (car x) (car t))
                       (shape (cdr x) (cdr t)))
@@ -276,7 +276,7 @@
           (new fail% [trace this])]
          [else (shape x t)])))
 
-    (define/override (augment-state state)
+    (define/override (augment state)
       (let loop ([x x] [t t] [state state])
         (let ([x (send state walk x)]
               [t (send state walk t)])
@@ -368,6 +368,5 @@
 
     (define/override (augment result)
       (define new-partial (or partial (send this body . rands)))
-      (printf "augment: ~a\n" new-partial)
       (send new-partial augment result))))
 

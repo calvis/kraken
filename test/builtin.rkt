@@ -17,7 +17,7 @@
 #lang racket/base
 
 (require (except-in rackunit fail) rackunit/text-ui racket/format
-         racket/class racket/pretty racket/promise racket/stream)
+         racket/class racket/pretty racket/engine)
 (require (for-syntax racket/base syntax/parse))
 (require "../main.rkt")
 
@@ -109,10 +109,6 @@
    (send (new state%) combine (new state% [subst `((,x . 5))]))
    (new state% [subst `((,x . 5))]))
 
-  (check-equal?
-   (run succeed)
-   (list (new state%)))
-
   (define (foo x) (new base% [rands (list x)]))
   (check-false (send (new state%) has-stored (foo 5)))
 
@@ -125,21 +121,21 @@
    (send (new state%) update (new state% [subst `((,x . 5))]))
    (new state%))
 
-  (check-false
-   (force (send (new fail%) augment (delay (cons (new state%) fail-result)))))
+  (check-equal?
+   (send succeed run (new state%))
+   (new state%))
 
   (check-equal?
-   (take-result
-    (send (new state%) augment (delay (cons (new state%) fail-result)))
-    #f)
+   (send fail run (new state%))
+   mzerom)
+
+  (check-equal?
+   (run succeed)
    (list (new state%)))
 
   (check-equal?
-   (take-result
-    (send (new state% [subst `((,x . 5))]) 
-          augment (delay (cons (new state%) fail-result)))
-    #f)
-   (list (new state% [subst `((,x . 5))]))))
+   (run fail)
+   (list)))
 
 (define-dependency-test associate-tests
   (state-tests)
@@ -187,6 +183,7 @@
    (send (new state% [store (list (≡ (cdr@ (list 1)) (list)))])
          update (new state%))
    (new state%)))
+
 
 (define-dependency-test conj-tests 
   (associate-tests)
@@ -246,12 +243,6 @@
    (run (exists (x y n)
           (conj (≡ n 1) (≡ x (list y))))))
 
-  (check-quick-termination
-   (take-result
-    (send (new state% [store (list (disj (≡ x 5) (≡ x 6)))])
-          augment (delay (cons (new state%) fail-result)))
-    #f))
-
   (check-equal?
    (run (disj (≡ x 1) (≡ x 2)))
    (append (run (≡ x 1)) (run (≡ x 2))))
@@ -271,18 +262,9 @@
          has-stored (disj (≡ x 5) (≡ x 6))))
 
   (check-equal?
-   (send (conj (disj (≡ x 5) (≡ x 6))
-               (disj (≡ x 5) (≡ x 6)))
-         run (new state%))
-   (send (disj (≡ x 5) (≡ x 6))
-         run (new state%)))
-
-  (check-equal?
    (run (conj (disj (≡ x 5) (≡ x 6))
               (disj (≡ x 5) (≡ x 6))))
    (run (disj (≡ x 5) (≡ x 6)))))
-
-(require racket/engine)
 
 (define-dependency-test shape-tests
   (conj-tests)
@@ -317,21 +299,9 @@
    (new state%))
 
   (check-equal?
-   (==> (≡ x 5))
-   (new ==>% 
-        [test (new state% [subst `((,x . 5))])]
-        [consequent succeed]))
-
-  (check-equal?
    (send (new state% [store (list (==> (≡ x 5)))])
          update (new state% [subst `((,x . 5))]))
    (new state%))
-
-  (check-equal?
-   (==> (==> (≡ x 5)))
-   (new ==>%
-        [test (new state% [store (list (==> (≡ x 5)))])]
-        [consequent succeed]))
 
   (check-equal?
    (send (new state% [store (list (==> (==> (≡ x 5))))])
@@ -361,83 +331,60 @@
    '(5))
 
   (check-equal?
-   (run (==> fail (disj (car@ '() 5))))
+   (run (==> fail (car@ '() 5)))
    (run (new fail%)))
 
   (check-equal?
-   (take-result
-    (send (==> (≡ x 5) (≡ y 6)) 
-          augment (delay (cons (new state%) (delay #f))))
-    #f)
-   (list (new state% [subst `((,y . 6) (,x . 5))])))
+   (run (conj (==> (shape x (cons (any) (any))))
+              (== x (list 1 2 3))))
+   (run (== x (list 1 2 3)))))
 
-  (check-equal?
-   (take-result
-    (send (==> fail (cdr@ '() x)) 
-          augment (delay (cons (new state%) (delay #f))))
-    #f)
-   (list))
+;; (define-dependency-test not-tests
+;;   (associate-tests conj-tests disj-tests)
+;;   
+;;   (check-equal?
+;;    (! (new state%)) 
+;;    (! (new state%)))
+;; 
+;;   (check-equal?
+;;    (send (! (conj (≡ x 5) (≡ y 6))) update (new state%))
+;;    (send (disj (! (≡ y 6)) (! (≡ x 5))) update (new state%))))
+;; 
 
-  (check-equal?
-   (take-result
-    (send (==> fail (disj (== (cdr@ '() x) 5) (== (cdr@ '() x) 5))) 
-          augment (delay (cons (new state%) (delay #f))))
-    #f)
-   (list))
 
-  (define@ (foo x)
-    (==> fail (foo (cdr@ (list)))))
+(define-dependency-test project-tests
+  (associate-tests conj-tests disj-tests)
 
   (check-quick-termination
-   (take-result (send (foo x) augment (delay (cons (new state%) fail-result))) #f)))
+   (send (disj (exists () (conj succeed (== x (list)))))
+         augment (new state%)))
 
-(define-dependency-test not-tests
-  (associate-tests conj-tests disj-tests)
-  
-  (check-equal?
-   (! (new state%)) 
-   (! (new state%)))
+  (check-quick-termination
+   (run (disj (exists () (conj (== x (list)) succeed)))))
+
+  (check-quick-termination
+   (run (project x [(list) succeed])))
 
   (check-equal?
-   (send (! (conj (≡ x 5) (≡ y 6))) update (new state%))
-   (send (disj (! (≡ y 6)) (! (≡ x 5))) update (new state%))))
+   (run (project x [(list) succeed]))
+   (run (== x (list)))))
 
 (define-dependency-test operator-tests
-  (associate-tests conj-tests disj-tests shape-tests ==>-tests not-tests)
+  (associate-tests conj-tests disj-tests shape-tests ==>-tests
+                   project-tests)
 
-  (define@ (foo x)
-    (==> (shape x (list))
-         (disj (== x (list)) (foo x))))
+  (define foo@
+    (lambda@ (x)
+      (disj (== x (list)) (foo@ x))))
 
   ;; x is never a pair, so the conj should never be joined
   ;; if succeed triggers joining, this infinite loops
-  (check-quick-termination (foo x))
-  (check-quick-termination 
-   (send (new state% [store (list (foo x))])
-         augment (delay (cons (new state%) fail-result))))
-  (check-quick-termination (run (foo x) 2))
-
-  (define@ (bar@ x)
-    (disj (== x 5) (==> (== y 6) (conj (bar@ x) (bar@ x)))))
-  
-  (check-quick-termination
-   (send (bar@ x) augment (delay (cons (new state%) fail-result))))
-
-  (bar)
-  (check-quick-termination
-   (force (send (bar@ x) augment (delay (cons (new state%) fail-result)))))
-
-  (check-quick-termination
-   (force
-    (cdr (force (send (bar@ x) augment
-                      (delay (cons (new state%) fail-result)))))))
+  (check-quick-termination (foo@ x))
+  (check-quick-termination (run (foo@ x) 2))
 
   (check-equal?
-   (force
-    (cdr (force (send (bar@ x) augment
-                      (delay (cons (new state%) fail-result))))))
-   '?)
-)
+   (query 2 (x) (foo@ x))
+   '(() ())))
 
 (define-dependency-test eigen-tests
   (operator-tests)
@@ -567,7 +514,15 @@
    (run (disj (≡ x 0) (≡ x 1))))
 
   (check-false (send (new state%) get-stored dom% x))
-  (check-false (send (new state%) get-stored dom% 5)))
+  (check-false (send (new state%) get-stored dom% 5))
+
+  (check-equal?
+   (send (dom@ x (range-dom 0 1)) merge (number@ x) (new state%))
+   (send (new state%) set-stored (dom@ x (range-dom 0 1))))
+
+  (check-equal?
+   (send (dom@ x (range-dom 0 1)) merge (symbol@ x) (new state%))
+   (new fail%)))
 
 (define-dependency-test fd-tests
   (operator-tests dom-tests)
@@ -591,8 +546,8 @@
    (run (exists (n1 n2) 
           (+@ n1 n2 1)))
    (run (exists (n1 n2)
-          (disj (conj (≡ n1 0) (≡ n2 1))
-                (conj (≡ n1 1) (≡ n2 0))))))
+          (disj (conj (≡ n2 1) (≡ n1 0))
+                (conj (≡ n2 0) (≡ n1 1))))))
 
   (let ([c1 (+@ x y z)] [c2 (+@ z y x)])
     (check-false (send (send (new state%) set-stored c1)
@@ -672,26 +627,7 @@
 
   (check-equal?
    (query (x y) (length@ (tree `(,x ,y)) 2))
-   '((() (lv.0 lv.1)) ((lv.0) (lv.1)) ((lv.0 lv.1) ())))
-
-  (let ([n1 (var 'n1)]
-        [n2 (var 'n2)]
-        [n3 (var 'n3)]
-        [n^ (var 'n^)])
-    (let ([n* (list n1 n2 n3)])
-      (check-equal?
-       (send (conj 
-              (apply +@ (append n* (list 1)))
-              (length@ x n1)
-              (length@ (list 3) n2)
-              (length@ y n3))
-             update (new state%))
-       (new state% [subst `((,n2 . 1)
-                           (,n1 . 0)
-                           (,n^ . 1)
-                           (,n3 . 0)
-                           (,x . ())
-                           (,y . ()))]))))
+   '(((lv.0 lv.1) ()) (() (lv.0 lv.1)) ((lv.0) (lv.1))))
 
   (check-run-fail
    (exists (x y) (length@ (tree `(,x (3) ,y)) 0)))
@@ -770,7 +706,7 @@
    '((5 5 5))))
 
 (define-dependency-test ground-attribute-tests
-  (operator-tests dom-tests)
+  (operator-tests)
 
   (check-run-succeed (symbol@ 'x))
   (check-run-fail (symbol@ 5))
@@ -779,15 +715,7 @@
   (check-run-succeed (number@ 5))
 
   (check-run-fail
-   (conj (symbol@ x) (number@ x)))
-
-  (check-equal?
-   (send (dom@ x (range-dom 0 1)) merge (number@ x) (new state%))
-   (send (new state%) set-stored (dom@ x (range-dom 0 1))))
-
-  (check-equal?
-   (send (dom@ x (range-dom 0 1)) merge (symbol@ x) (new state%))
-   (new fail%)))
+   (conj (symbol@ x) (number@ x))))
 
 (define-dependency-test stlc-tests
   (operator-tests dots-tests eigen-tests)
@@ -832,18 +760,20 @@
    '(x1 x2))
 
   (define@ (⊢@ gamma expr type)
-    (case-shape expr
-      [(num ,(any)) (≡ type `int)]
-      [(var ,(any)) (lookup@ gamma (car@ (cdr@ expr)) type)]
-      [(lambda (,(any)) ,(any))
-       (exists (x body t1 t2)
-         (conj (≡ expr `(lambda (,x) ,body))
-               (≡ type `(-> ,t1 ,t2))
+    (project expr
+      [`(num ,x)
+       (≡ type `int)]
+      [`(bool ,b) 
+       (≡ type `bool)]
+      [`(var ,x)
+       (lookup@ gamma x type)]
+      [`(lambda (,x) ,body)
+       (exists (t1 t2)
+         (conj (≡ type `(-> ,t1 ,t2))
                (⊢@ `((,x . ,t1) . ,gamma) body t2)))]
-      [(app ,(any) ,(any))
-       (exists (fn arg t1)
-         (conj (≡ expr `(app ,fn ,arg))
-               (⊢@ gamma fn `(-> ,t1 ,type))
+      [`(app ,fn ,arg)
+       (exists (t1)
+         (conj (⊢@ gamma fn `(-> ,t1 ,type))
                (⊢@ gamma arg t1)))]))
   
   (check-run-fail
@@ -887,36 +817,27 @@
            (⊢@ `() fn `(-> int int)))))
 
   (check-one-answer
-   (exists (expr type gamma)
-     (conj
-      (≡ expr `(lambda (x) (var x)))
-      (≡ type `(-> int int))
-      (≡ gamma `())
-      (==> (shape expr `(lambda (,(any)) ,(any)))
-           (exists (x body t1 t2)
-             (conj (≡ expr `(lambda (,x) ,body))
-                   (≡ type `(-> ,t1 ,t2))
-                   (⊢@ `((,x . ,t1) . ,gamma) body t2)))))))
-
-  (check-one-answer
    (⊢@ `() `(app (lambda (x) (var x)) (num 5)) `int))
-
-  (check-quick-termination
-   (send (⊢@ `() x `int) augment (delay (cons (new state%) (delay #f)))))
 
   (check-quick-termination
    (run (⊢@ `() x `int) 1))
 
-  (check-quick-termination
+  (check-long-termination
    (query 2 (x) (⊢@ `() x `int)))
 
   (check-equal?
    (query 2 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int)))
    '((num lv.0) (var x)))
 
+  (check-long-termination
+   (query 3 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int))))
+
   (check-equal?
-   (run (⊢@ `() `(lambda (x) ,x) `(-> int int)) 3)
-   '?)
+   (query 3 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int)))
+   '((num lv.0) (var x) (app (lambda (lv.0) (num lv.1)) (num lv.2))))
+
+  (check-long-termination
+   (query 5 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int))))
 
   (check-run-succeed
    (forall (e) (⊢@ `() `(num ,e) `int))))
@@ -931,17 +852,18 @@
    (time (disj-tests))
    (time (shape-tests))
    (time (==>-tests))
-   (time (not-tests))
+;;    (time (not-tests))
+   (time (project-tests))
    (time (operator-tests))
 
    (time (eigen-tests))
    (time (list-tests))
+   (time (ground-attribute-tests))
    (time (dom-tests))
    (time (fd-tests))
    (time (tree-tests))
    (time (length-tests))
    (time (dots-tests))
-   (time (ground-attribute-tests))
 
    (time (stlc-tests))))
 

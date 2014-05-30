@@ -63,17 +63,22 @@
          [else
           (define-values (store store^)
             (partition (curryr is-a? +%) (get-field store state)))
-          (send (apply conj store)
-                run
-                (send (new dom% [rands (list x new-d)])
-                      run (new state%
-                               [subst (get-field subst state)]
-                               [store store^])))])]
+          (let ([state (send
+                        (send (new dom% [rands (list x new-d)])
+                              update
+                              (new state% 
+                                   [subst (get-field subst state)]
+                                   [store store^]))
+                        combine
+                        (new state% 
+                             [subst (get-field subst state)]
+                             [store store^]))])
+            (send (send (apply conj store) update state) combine state))])]
        [else (send state set-stored this)]))
 
-    (define/override (augment result)
+    (define/override (augment state)
       (send (apply disj (for/list ([i (dom->list d)]) (≡ x i)))
-            augment result))))
+            run state))))
 
 (define (dom@ x d)
   (new dom% [rands (list x d)]))
@@ -92,9 +97,9 @@
     (define/augment (update state)
       (cond
        [(or (null? n*) (null? (cdr n*))) 
-        (new state%)]
+        succeed]
        [(null? (cddr n*))
-        (== (car n*) (cadr n*))]
+        (send (== (car n*) (cadr n*)) update state)]
        [(null? (cdddr n*))
         (apply update/3 state n*)]
        [else

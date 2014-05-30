@@ -21,44 +21,66 @@
          racket/stream
          racket/list
          racket/set
-         racket/promise
          racket/pretty)
+
+(require (for-syntax racket/base syntax/parse))
 
 (require "data.rkt"
          "interfaces.rkt")
 
 (provide (all-defined-out))
 
-(define fail-result (delay #f))
-(define (fail-result? x) (eq? x fail-result))
+(define mzerof (lambda () #f))
+(define choiceg cons)
 
-(define (take-result result n)
-  (cond
-   [(and n (zero? n)) '()]
-   [else (let ([p (force result)])
-           (cond
-            [(not p) '()]
-            [else (cons (car p) (take-result (cdr p) (and n (sub1 n))))]))]))
+;; the failure value
+(define mzerom (mzerof))
 
-(define (filter-result result)
-  (cond
-   [(fail-result? result) result]
-   [else (let ([p (force result)])
-           (cond
-            [(not p) fail-result]
-            [(and (is-a? (car p) state%)
-                  (send (car p) fail?))
-             (filter-result (cdr p))]
-            [else (lazy (cons (car p) (filter-result (cdr p))))]))]))
+(define mplusm
+  (lambda (a-inf f)
+    (case-inf a-inf
+      (() (f))
+      ((f^) (delay (mplusm (f) f^)))
+      ((a) (choiceg a f))
+      ((a f^) (choiceg a (delay (mplusm (f) f^)))))))
 
-(define (map-result fn result)
-  (cond
-   [(fail-result? result) result]
-   [else
-    (let ([p (force result)])
-      (cond
-       [(not p) fail-result]
-       [else (lazy (cons (fn (car p)) (map-result fn (cdr p))))]))]))
+;; applies a goal to an a-inf and returns an a-inf
+(define (bindm a-inf fn)
+  (case-inf a-inf
+            [() (mzerof)]
+            [(f) (delay (bindm (f) fn))]
+            [(thing) (fn thing)]
+            [(thing f) (mplusm (fn thing)
+                               (delay (bindm (f) fn)))]))
+
+;; macro that delays expressions
+(define-syntax (lambdaf@ stx)
+  (syntax-parse stx
+    [(lambdaf@ () e) 
+     (syntax/loc stx (lambda () e))]))
+
+;; delays an expression
+(define-syntax delay
+  (syntax-rules ()
+    [(_ e) (lambdaf@ () e)]))
+
+(define empty-f (delay (mzerof)))
+
+;; convenience macro for dispatching on the type of a-inf
+(define-syntax case-inf
+  (syntax-rules ()
+    ((_ e (() e0) ((f^) e1) ((a^) e2) ((a f) e3))
+     (let ([a-inf e])
+       (cond
+        [(not a-inf) e0]
+        [(and (is-a? a-inf state%)
+              (send a-inf fail?))
+         e0]
+        [(procedure? a-inf) 
+         (let ([f^ a-inf]) e1)]
+        [(not (and (pair? a-inf) (procedure? (cdr a-inf))))
+         (let ([a^ a-inf]) e2)]
+        [else (let ([a (car a-inf)] [f (cdr a-inf)]) e3)])))))
 
 (define state%
   (class* object% (equal<%> printable<%>)
@@ -71,7 +93,7 @@
 
     (define sexp-me
       (list (object-name this%) (idemize subst) store))
-    
+
     (define/public (custom-print p depth)
       (display sexp-me p))
     (define/public (custom-write p)
@@ -85,6 +107,9 @@
     (unless (list? store)
       (error 'state% "store is not a list\n store: ~a" store))
 
+    (unless (andmap object? store)
+      (error 'state% "bad store\n store: ~a" store))
+    
     (define/public (equal-to? obj recur?)
       (and (is-a? obj this%)
            (recur? (idemize subst) (idemize (get-field subst obj)))
@@ -118,13 +143,6 @@
 
     (define/public (set-stored thing)
       (new this% [subst subst] [store (cons thing store)]))
-
-    (define/public (narrow [n #f])
-      (define answer-stream
-        (send this augment (delay (cons (new state%) fail-result))))
-      (define result
-        (take-result answer-stream n))
-      (if query (map (lambda (state) (send state reify query)) result) result))
 
     (define/public (reify v)
       (let ([v (walk v)])
@@ -183,7 +201,7 @@
       (for/fold
         ([state (add-subst state)])
         ([thing store])
-        (send thing run state)))
+        (send (send thing update state) combine state)))
 
     (define/public (run state)
       (add-store (add-subst state)))
@@ -214,16 +232,14 @@
     (define/public (add-query query)
       (new this% [subst subst] [store store] [query query]))
 
-    ;; Result is a [Delay [Maybe (cons State Result)]]
-    ;; Result -> Result
-    (define/public (augment result)
-      (let loop ([store store]
-                 [result (map-result (lambda (state) (add-subst state)) result)])
-        (cond
-         [(null? store) result]
-         [(fail-result? result) fail-result]
-         [else (loop (cdr store) (send (car store) augment result))])))))
-
+    ;; allows final computations to happen
+    (define/public (augment [state #f])
+      (delay
+        (for/fold 
+          ([a-inf (or (and state (add-subst state)) (new this% [subst subst]))])
+          ([thing store])
+          (bindm a-inf (lambda (state) (delay (send thing augment state)))))))))
+ 
 ;; check-scope : 
 ;;   [List-of EigenVar] [List-of CVar] [List-of [List-of CVar]] -> Boolean
 ;; returns #t if scope is correctly observed, and #f otherwise
@@ -278,17 +294,15 @@
     (define/override (custom-display p) 
       (display sexp-me p))
 
-    (define/override (narrow [n #f]) '())
     (define/override (associate x v [scope '()]) this)
     (define/override (unify x v) this)
     (define/override (set-stored attr) this)
-    (define/override (run state) this)
+    (define/override (run state) #f)
     (define/override (add-store store) this)
     (define/override (fail?) #t)
     (define/override (update state) this)
     (define/override (combine state) this)
-    (define/override (trivial?) #f)
-    (define/override (augment result) fail-result)))
+    (define/override (trivial?) #f)))
 
 (define fail (new fail%))
 (define succeed (new state%))
