@@ -47,9 +47,8 @@ Evaluates the logical meaning of @racket[stmt], and returns the first
 @racket[num] different possible satisfying @racket[state%]s (or all
 of them if no number is given).}
 
-@defform[(query maybe-num (x ...) side-effect-expr ... stmt)
-         #:contracts ([side-effect-expr void?]
-                      [stmt statement?])]{
+@defform[(query maybe-num (x ...) stmt)
+         #:contracts ([stmt statement?])]{
 
 Combines @racket[exists] and @racket[run] to automatically reify each
 @racket[x] in the @racket[state%]s resulting from running
