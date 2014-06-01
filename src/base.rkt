@@ -876,7 +876,8 @@
     [(a . d)
      (append (walk-pattern #'a quoted?)
              (walk-pattern #'d quoted?))]
-    [x (if quoted? (list) (list #'x))]))
+    [x:id (if quoted? (list) (list #'x))]
+    [x (list)]))
 
 (require (for-syntax racket/pretty))
 
@@ -896,6 +897,10 @@
                 #,(commit-pattern #'d #`(cdr #,thing) quoted?)))]
     [((~literal list))
      #`(null? #,thing)]
+    [((~literal list) a d ...)
+     #`(or (var? #,thing)
+           (and (pair? #,thing)
+                #,(commit-pattern #'(list d ...) #`(cdr #,thing) quoted?)))]
     [((~literal tree) ((~literal list) d ...))
      #:when (not quoted?)
      (define/with-syntax (node-i ...)

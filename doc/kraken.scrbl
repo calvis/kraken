@@ -118,12 +118,14 @@ Performs logical disjunction over @racket[clause]s.
                     [pattern (quasiquote quasi-pattern)
                              (cons pattern pattern)
                              (tree (list pattern ...))
-                             (list)
-                             identifier]
+                             (list pattern ...)
+                             identifier
+                             literal]
                     [quasi-pattern (quasi-pattern ...)
                                    (unquote pattern)
                                    symbol])
-         #:contracts ([body statement?])]{
+         #:contracts ([body statement?]
+                      [literal value?])]{
 
 A @racket[statement?] that lexically binds @racket[lv] to the value it
 has been unified with and then runs @racket[body].  If @racket[lv] is

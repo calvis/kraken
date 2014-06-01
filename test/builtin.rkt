@@ -257,7 +257,11 @@
    '((5 . 6)))
 
   (check-run-fail 
-   (project x [(cons a d) fail])))
+   (project x [(cons a d) fail]))
+
+  (check-equal?
+   (query (x) (project x [(list 1 2 3)]))
+   '((1 2 3))))
 
 (define-dependency-test operator-tests
   (associate-tests conj-tests disj-tests project-tests)
@@ -885,7 +889,28 @@
   (tt c2)
   (tt c3)
   (tt c1-alt)
-  (tt c2-alt))
+  (tt c2-alt)
+
+  (define@ (d-opposite d1 d2)
+    (disj
+     (conj (== d1 'south) (== d2 'north))
+     (conj (== d1 'north) (== d2 'south))
+     (conj (== d1 'east)  (== d2 'west))
+     (conj (== d1 'west)  (== d2 'east))))
+
+  (define@ (wf-connections gamma d x y)
+    (project gamma
+      [(tree (list r1 (list r) r2))
+       (exists (x items e)
+         (conj (list-of@ r-term r1)
+               (list-of@ r-term r2)
+               (== r `(room ,x ,items ,e))
+               (project e
+                 [(tree (list dx1 (list dx) dx2))
+                  (exists (do xf)
+                    (conj (== y xf)
+                          (== dx (list d xf))
+                          (d-opposite do d)))])))])))
 
 (define builtin-test-suite
   (test-suite 
