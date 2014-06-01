@@ -143,6 +143,15 @@ lexically bound within the @racket[body].
   (project x [(cons a d) (≡ y 5)]))
 (query (x)
   (project x [(cons a d) (conj (≡ a 5) (== (cdr x) 6))]))
+]
+
+If a @racket[body] is not provided, @racket[succeed] is simply
+substituted in its place.
+
+@examples[
+#:eval kr-eval
+(query (x) 
+  (project x [(tree (list a b))]))
 ]}
 
 @section{Relations}
