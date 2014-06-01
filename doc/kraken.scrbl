@@ -173,11 +173,10 @@ for error reporting and printing.
 (define@ (lookup@ gamma x t)
   (project gamma
     [(cons a d)
-     (disj
-      (≡ a `(,x . ,t))
-      (exists (y s)
-        (conj (≡ a `(,y . ,s))
-              (lookup@ d x t))))]))
+     (disj (≡ a `(,x . ,t))
+           (exists (y s)
+             (conj (≡ a `(,y . ,s))
+                   (lookup@ d x t))))]))
 (exists (x) (lookup@ `((y . int)) x `bool))
 (query (x) (lookup@ `((y . int)) x `int))
 (query (x) (lookup@ `((y . int)) x `bool))

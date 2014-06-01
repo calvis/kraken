@@ -47,30 +47,31 @@
     (define x (car rands))
 
     (define/override (update state)
-      (cond
-       [(send state get-stored this% x)
-        => (lambda (n) (send (== (cadr rands) n) update state))]
-       [else
-        (let ([x (send state walk x)]
-              [n (send state walk (cadr rands))])
-          (cond
-           [(and (list? x) (number? n))
-            (or (and (= (length x) n) succeed) fail)]
-           [(list? x)
-            (send (== (length x) n) update state)]
-           [(tree? x)
-            (match-define (tree nodes) x)
-            (define n* 
-              (for/list ([node nodes]) (var (gensym 'n))))
-            (send (apply conj 
-                         (apply +@ (append n* (list n)))
-                         (for/list ([node nodes] [n n*])
-                           (length@ node n)))
-                  update state)]
-           [(number? n)
-            (send (== (for/list ([i n]) (var (gensym 'i))) x)
-                  update state)]
-           [else (new this% [rands (list x n)])]))]))
+      (let ([x (send state walk x)]
+            [n (send state walk (cadr rands))])
+        (cond
+         [(and (list? x) (number? n))
+          (or (and (= (length x) n) succeed) fail)]
+         [(list? x)
+          (send (== (length x) n) update state)]
+         [(tree? x)
+          (match-define (tree nodes) x)
+          (define n* 
+            (for/list ([node nodes]) (var (gensym 'n))))
+          (send (apply conj 
+                       (apply +@ (append n* (list n)))
+                       (for/list ([node nodes] [n n*])
+                         (length@ node n)))
+                update state)]
+         [(number? n)
+          (send (== (for/list ([i n]) (var (gensym 'i))) x)
+                update state)]
+         [else (new this% [rands (list x n)])])))
+
+    (define/augment (merge attr^ state)
+      (send
+       (send (== (cadr rands) (send attr^ get-value)) update state)
+       combine state))
     
     (define/public (get-value) (cadr rands))))
 

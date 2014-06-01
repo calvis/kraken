@@ -25,7 +25,7 @@
 ;; dom@
 
 (define dom%
-  (class number% 
+  (class* number% (augmentable<%>)
     (super-new)
 
     (inherit-field rands)
@@ -114,6 +114,7 @@
       (let ([u (send state walk u)]
             [v (send state walk v)]
             [w (send state walk w)])
+        ;; (printf "update/3: ~a ~a ~a\n ~a\n" u v w state)
         (cond
          [(or (var? u) (var? v) (var? w))
           (let ([du (or (send state get-stored dom% u) 
@@ -128,9 +129,15 @@
             (let ([wmin (min-dom dw)] [wmax (max-dom dw)]
                   [umin (min-dom du)] [umax (max-dom du)]
                   [vmin (min-dom dv)] [vmax (max-dom dv)])
-              (let ([new-w-dom (range-dom (+ umin vmin) (+ umax vmax))]
-                    [new-u-dom (range-dom (- wmin vmax) (- wmax vmin))]
-                    [new-v-dom (range-dom (- wmin umax) (- wmax umin))])
+              (let ([new-w-dom 
+                     (intersection-dom
+                      (range-dom (+ umin vmin) (+ umax vmax)) dw)]
+                    [new-u-dom 
+                     (intersection-dom
+                      (range-dom (- wmin vmax) (- wmax vmin)) du)]
+                    [new-v-dom 
+                     (intersection-dom
+                      (range-dom (- wmin umax) (- wmax umin)) dv)])
                 (conj (+@ u v w)
                       (send (conj (dom@ w new-w-dom)
                                   (dom@ v new-v-dom)

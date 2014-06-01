@@ -25,35 +25,34 @@
          racket/stream)
 
 (require "data.rkt"
-         "states.rkt"
          "interfaces.rkt"
-         "operators.rkt" 
          "base.rkt"
          "infs.rkt")
 
 (provide (all-from-out "data.rkt")
-         (all-from-out "states.rkt")
-         (all-from-out "operators.rkt")
          (all-from-out "interfaces.rkt")
          (all-from-out "base.rkt")
          (all-defined-out))
 
+(define (take-a-inf n f) 
+  (cond
+   [(and n (zero? n)) '()]
+   [else
+    (case-inf (f)
+              [() (list)]
+              [(f) (take-a-inf n f)]
+              [(state) 
+               (list state)]
+              [(state f) 
+               (cons state (take-a-inf (and n (sub1 n)) f))])]))
+
 (define (run obj [n #f] [term #f])
   (cond
    [(send (conj obj) all (new state%))
-    => (lambda (a-inf)
-         (let take ([n n] [f a-inf])
-           (cond
-            [(and n (zero? n)) '()]
-            [else
-             (case-inf (f)
-                       [() (list)]
-                       [(f) (take n f)]
-                       [(state) 
-                        (list (if term (send state reify term) state))]
-                       [(state f) 
-                        (cons (if term (send state reify term) state)
-                              (take (and n (sub1 n)) f))])])))]))
+    => (lambda (a-inf) 
+         (take-a-inf n (if term 
+                           (bindm a-inf (lambda (state) (send state reify term)))
+                           a-inf)))]))
 
 (define-syntax (query stx)
   (syntax-parse stx

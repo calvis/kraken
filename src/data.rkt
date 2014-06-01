@@ -80,16 +80,7 @@
 
 (provide (struct-out tree))
 
-(struct tree (nodes) #:transparent
-        #:methods gen:custom-write
-        [(define (write-proc x port mode)
-           (display
-            (cons 'tree 
-                  (for/fold ([nodes '()]) ([node (tree-nodes x)])
-                    (cond
-                     [(list? node) (append nodes node)]
-                     [else (append nodes (list '@ node))])))
-            port))])
+(struct tree (nodes) #:transparent)
 
 ;; =============================================================================
 ;; substitution

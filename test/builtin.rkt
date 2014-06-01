@@ -210,7 +210,14 @@
               (≡ x (list 1 2 3))))
    (run (conj (≡ x (list 1 2 3))
               (≡ (var 'a) 1)
-              (≡ (var 'd) (list 2 3))))))
+              (≡ (var 'd) (list 2 3)))))
+
+  (check-equal?
+   (take-a-inf
+    #f
+    (send (conj (== x 5) fail)
+          augment (new state%)))
+   (list)))
 
 (define-dependency-test disj-tests
   (associate-tests conj-tests)
@@ -292,7 +299,10 @@
   (check-equal?
    (query (x)
      (project x [(cons a d) (conj (≡ a 5) (== (cdr x) 6))]))
-   '((5 . 6))))
+   '((5 . 6)))
+
+  (check-run-fail 
+   (project x [(cons a d) fail])))
 
 (define-dependency-test operator-tests
   (associate-tests conj-tests disj-tests project-tests)
@@ -491,6 +501,14 @@
 
   (check-equal?
    (run (list@ 4))
+   (list))
+
+  (check-equal?
+   (run (list@ (cons 1 2)))
+   (list))
+
+  (check-equal?
+   (run (list@ (cons 1 (cons 2 3))))
    (list)))
 
 (define-dependency-test tree-tests
@@ -506,7 +524,20 @@
 
   (check-equal?
    (run (conj (list@ x) (tree@ x)))
-   (run (conj (tree@ x) (list@ x)))))
+   (run (conj (tree@ x) (list@ x))))
+
+  (check-one-answer
+   (== (list 5) (tree (list x))))
+
+  (check-equal?
+   (query (x) (== (list 5) (tree (list x (list 5) x))))
+   '(()))
+
+  (check-equal?
+   (query (w x y z)
+     (conj (== w (list y z))
+           (== w (tree (list x x)))))
+   '(((lv.0 lv.0) (lv.0) lv.0 lv.0))))
 
 (define-dependency-test length-tests
   (operator-tests list-tests fd-tests tree-tests)
@@ -620,7 +651,44 @@
 
   (check-equal? 
    (query (x) (conj (length@ x 3) (list-of@ (lambda (v) (≡ v 5)) x)))
-   '((5 5 5))))
+   '((5 5 5)))
+
+  (define@ (foo@ x thing)
+    (project x
+      [(tree (list y thing^ y))
+       (conj (list-of@ uw5 y)
+             (== thing^ thing))]))
+
+  (check-equal?
+   (query (z) 
+     (exists (n1 n2)
+       (conj (== z (tree (list y (list) y)))
+             (length@ y n1)
+             (length@ y n2)
+             (+@ n1 n2 1))))
+   '())
+
+  (check-equal?
+   (query (z) 
+     (conj (== z (tree (list y y)))
+           (length@ z 1)))
+   '())
+
+  (check-equal?
+   (run (conj (foo@ z (list)) (length@ z 1)))
+   '())
+
+  (check-equal?
+   (query (z) 
+     (conj (== z (tree (list y (list 5) y)))
+           (length@ z 1)))
+   `(,(tree (list (list) (list 5) (list)))))
+
+  (check-equal?
+   (query (z) 
+     (conj (foo@ z (list 5))
+           (length@ z 1)))
+   '((5))))
 
 (define-dependency-test ground-attribute-tests
   (operator-tests)
@@ -743,6 +811,127 @@
    (query (stuff) (⊢@ `((x . int)) `(lambda ,stuff (var x)) `(-> int int)))
    '((x) (lv.0))))
 
+(define-dependency-test dd-tests
+  (operator-tests)
+  
+  (define (string@ x)
+    (new (ground-type-mixin string?) [rands (list x)]))
+
+  (define@ (dd-term x)
+    (disj (c-term x)
+          (p-term x)
+          (r-term x)
+          (e-term x)
+          (d-term x)
+          (items-term x)
+          (named-term x)
+          (x-term x)))
+
+  (define@ (c-term x)
+    (project x
+      [`(configuration ,p ,rs)
+       (conj (p-term p) (list-of@ r-term rs))]))
+
+  (define@ (p-term x)
+    (project x
+      [`(player ,named ,y)
+       (conj (named-term named) (x-term y))]))
+
+  (define@ (r-term x)
+    (project x
+      [`(room ,y ,items ,e)
+       (conj (x-term y) 
+             (items-term items)
+             (e-term e))]))
+
+  (define@ (e-term x)
+    (list-of@ (lambda (thing)
+               (project thing
+                 [`(,d ,x)
+                  (conj (d-term d)
+                        (x-term x))]))
+             x))
+
+  (define@ (d-term x)
+    (project x
+      [`north]
+      [`east]
+      [`south]
+      [`west]))
+
+  (define@ (items-term x) (string@ x))
+  (define@ (named-term x) (string@ x))
+  (define@ (x-term x) (symbol@ x))
+
+  (define-syntax-rule (term x) (quote x))
+
+  (define c0
+    (term 
+     [configuration 
+      (player "matthias" living)
+      ((room living "green" ((east sitting)))
+       (room sitting "blue" ((east dining) (west living)))
+       (room dining "red" ((west sitting))))]))
+
+  (define c0-extended
+    (term 
+     [configuration 
+      (player "matthias" living)
+      ((room living "green" ((east sitting)))
+       (room sitting "blue" ((east dining) (west living) (south kitchen)))
+       (room dining "red" ((west sitting) (north kitchen)))
+       (room kitchen "yellow" ((south dining) (north sitting))))]))
+
+  (define c1
+    (term 
+     [configuration 
+      (player "matthias" living)
+      [(room living "green" ((east sitting)))
+       (room sitting "blue" ((west living) (east dining)))
+       (room dining "red" ((west sitting)))]]))
+
+  (define c2 
+    (term 
+     [configuration 
+      (player "matthias" sitting)
+      [(room living "green" ((east sitting)))
+       (room sitting "blue" ((west living) (east dining)))
+       (room dining "red" ((west sitting)))]]))
+
+  (define c3
+    (term 
+     [configuration 
+      (player "matthias" dining)
+      [(room living "green" ((east sitting)))
+       (room sitting "blue" ((west living) (east dining)))
+       (room dining "red" ((west sitting)))]]))
+
+  (define c1-alt
+    (term 
+     [configuration 
+      (player "matthias" living)
+      [(room sitting "blue" ((west living) (east dining)))
+       (room living "green" ((east sitting)))
+       (room dining "red" ((west sitting)))]]))
+
+  (define c2-alt
+    (term 
+     [configuration 
+      (player "matthias" sitting)
+      [(room sitting "blue" ((west living) (east dining)))
+       (room living "green" ((east sitting)))
+       (room dining "red" ((west sitting)))]]))
+
+  (define-syntax-rule (tt c)
+    (check-one-answer (c-term c)))
+
+  (tt c0)
+  (tt c1)
+  (tt c2)
+  (tt c3)
+  (tt c1-alt)
+  (tt c2-alt))
+
 (define builtin-test-suite
   (test-suite 
    "builtin tests"
@@ -763,7 +952,8 @@
    (time (length-tests))
    (time (list-of-tests))
 
-   (time (stlc-tests))))
+   (time (stlc-tests))
+   (time (dd-tests))))
 
 (module+ test
   (parameterize ([pretty-print-columns 102]
