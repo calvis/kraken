@@ -768,55 +768,6 @@
   (new disj% [states clauses]))
 
 ;; -----------------------------------------------------------------------------
-;; implies
-
-(define ==>%
-  (class* operator% (equal<%>)
-    (super-new)
-    (init-field test consequent)
-
-    (define/override (sexp-me)
-      (list (object-name this%) test consequent))
-
-    (define/public (equal-to? obj recur?)
-      (and (recur? test (get-field test obj))
-           (recur? consequent (get-field consequent obj))))
-    (define/public (equal-hash-code-of hash-code)
-      (+ 1 (hash-code test) (hash-code consequent)))
-    (define/public (equal-secondary-hash-code-of hash-code)
-      (+ (hash-code test) (* 10 (hash-code consequent))))
-
-    (define/public (update state)
-      (define test^ (send test update state))
-      (cond
-       [(is-a? test^ state%)
-        (cond
-         [(send test^ trivial?) 
-          (send consequent update state)]
-         [(send test^ fail?) test^]
-         [else (new ==>% [test test^] [consequent consequent])])]
-       [else (new ==>% [test test^] [consequent consequent])]))
-
-    (define/public (run state)
-      (send (update state) combine state))
-    (define/public (combine state)
-      (send state set-stored this))
-
-    (define/public (add-scope ls)
-      (new this%
-           [test (send test add-scope ls)]
-           [consequent (send consequent add-scope ls)]))
-
-    (define/public (augment state)
-      (delay
-        (bindm (send test augment state)
-               (lambda (state) 
-                 (delay (send consequent augment state))))))))
-
-(define (==> t [c succeed]) 
-  (new ==>% [test t] [consequent c]))
-
-;; -----------------------------------------------------------------------------
 ;; not
 
 (define not%
