@@ -117,6 +117,7 @@ Performs logical disjunction over @racket[clause]s.
          #:grammar ([maybe-body (code:line) body]
                     [pattern (quasiquote quasi-pattern)
                              (cons pattern pattern)
+                             (tree (list pattern ...))
                              (list)
                              identifier]
                     [quasi-pattern (quasi-pattern ...)
