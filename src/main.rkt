@@ -38,7 +38,7 @@
   (cond
    [(and n (zero? n)) '()]
    [else
-    (case-inf (f)
+    (case-inf (force f)
               [() (list)]
               [(f) (take-a-inf n f)]
               [(state) 

@@ -675,15 +675,14 @@
                (bindm a-inf (lambda (state) (send g run state))))))
 
     (define/public (all state)
-      (delay (let ([a-inf (run state)])
-               (let loop ([a-inf a-inf])
-                 (bindm a-inf
-                        (lambda (state)
-                          (cond
-                           [(findf (curryr is-a? augmentable<%>)
-                                   (get-field store state))
-                            (delay (loop (send state augment)))]
-                           [else state])))))))
+      (delay (let loop ([a-inf (run state)])
+               (bindm a-inf
+                      (lambda (state)
+                        (cond
+                         [(findf (curryr is-a? augmentable<%>)
+                                 (get-field store state))
+                          (delay (loop (send state augment)))]
+                         [else state]))))))
     
     (define/public (combine state)
       (for/fold ([state state]) ([thing clauses])

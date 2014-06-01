@@ -25,45 +25,33 @@
 #lang racket/base
 
 (require (for-syntax racket/base syntax/parse)
+         racket/promise
          racket/class)
 
-(provide (all-defined-out))
+(provide (all-defined-out)
+         delay force)
 
-(define mzerof (lambda () #f))
 (define choiceg cons)
 
 ;; the failure value
-(define mzerom (mzerof))
+(define mzerom #f)
 
 (define mplusm
   (lambda (a-inf f)
     (case-inf a-inf
-      (() (f))
-      ((f^) (delay (mplusm (f) f^)))
+      (() (force f))
+      ((f^) (delay (mplusm (force f) f^)))
       ((a) (choiceg a f))
-      ((a f^) (choiceg a (delay (mplusm (f) f^)))))))
+      ((a f^) (choiceg a (delay (mplusm (force f) f^)))))))
 
 ;; applies a goal to an a-inf and returns an a-inf
 (define (bindm a-inf fn)
   (case-inf a-inf
-            [() (mzerof)]
-            [(f) (delay (bindm (f) fn))]
+            [() mzerom]
+            [(f) (delay (bindm (force f) fn))]
             [(thing) (fn thing)]
             [(thing f) (mplusm (fn thing)
-                               (delay (bindm (f) fn)))]))
-
-;; macro that delays expressions
-(define-syntax (lambdaf@ stx)
-  (syntax-parse stx
-    [(lambdaf@ () e) 
-     (syntax/loc stx (lambda () e))]))
-
-;; delays an expression
-(define-syntax delay
-  (syntax-rules ()
-    [(_ e) (lambdaf@ () e)]))
-
-(define empty-f (delay (mzerof)))
+                               (delay (bindm (force f) fn)))]))
 
 ;; convenience macro for dispatching on the type of a-inf
 (define-syntax case-inf
@@ -74,9 +62,9 @@
         [(not a-inf) e0]
         [(and (object? a-inf) (send a-inf fail?))
          e0]
-        [(procedure? a-inf) 
+        [(promise? a-inf)
          (let ([f^ a-inf]) e1)]
-        [(not (and (pair? a-inf) (procedure? (cdr a-inf))))
+        [(not (and (pair? a-inf) (promise? (cdr a-inf))))
          (let ([a^ a-inf]) e2)]
         [else (let ([a (car a-inf)] [f (cdr a-inf)]) e3)])))))
 
