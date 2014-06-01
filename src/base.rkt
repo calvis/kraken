@@ -42,10 +42,10 @@
 (provide (all-defined-out))
 
 (define state%
-  (class* object% (equal<%> printable<%> augmentable<%>)
+  (class* object% (equal<%> printable<%>)
     (super-new)
 
-    (init-field [subst '()] [store '()] [query #f])
+    (init-field [subst '()] [store '()])
 
     (define (idemize subst)
       (map (lambda (p) (list (car p) (walk/internal (cdr p) subst))) subst))
@@ -178,9 +178,6 @@
       (and (null? subst) (null? store)))
 
     (define/public (fail?) #f)
-
-    (define/public (add-query query)
-      (new this% [subst subst] [store store] [query query]))
 
     ;; allows final computations to happen
     (define/public (augment [state #f])
@@ -665,7 +662,7 @@
 (define conj%
   (class operator%
     (super-new)
-    (init-field [clauses '()] [query #f])
+    (init-field [clauses '()])
 
     (define/override (sexp-me)
       (cons (object-name this%) clauses))
@@ -694,10 +691,7 @@
     (define/public (add-scope ls)
       (define new-clauses
         (map (lambda (thing) (send thing add-scope ls)) clauses))
-      (new conj% [clauses new-clauses] [query query]))
-
-    (define/public (add-query t)
-      (new this% [clauses clauses] [query t]))
+      (new conj% [clauses new-clauses]))
 
     (define/public (augment state)
       (delay (for/fold ([a-inf state]) ([g clauses])
