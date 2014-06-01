@@ -685,8 +685,8 @@
       (for/fold ([state state]) ([thing clauses])
         (send thing combine state)))
 
-    (define/public (update state^)
-      (send (new state% [store clauses]) update state^))
+    (define/public (update state)
+      (send (new state% [store clauses]) update state))
 
     (define/public (add-scope ls)
       (define new-clauses
