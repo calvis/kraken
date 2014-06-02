@@ -44,7 +44,8 @@
               [(state) 
                (list state)]
               [(state f) 
-               (cons state (take-a-inf (and n (sub1 n)) f))])]))
+               (let ([rest (take-a-inf (and n (sub1 n)) f)])
+                 (if (member state rest) rest (cons state rest)))])]))
 
 (define (run obj [n #f] [term #f])
   (cond

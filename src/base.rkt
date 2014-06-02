@@ -71,7 +71,10 @@
     
     (define/public (equal-to? obj recur?)
       (and (is-a? obj this%)
-           (recur? (idemize subst) (idemize (get-field subst obj)))
+           (recur? (sort (idemize subst) <
+                         #:key (compose equal-hash-code car))
+                   (sort (idemize (get-field subst obj)) <
+                         #:key (compose equal-hash-code car)))
            (recur? store (get-field store obj))))
 
     (define/public (equal-hash-code-of hash-code)
@@ -448,6 +451,7 @@
 
 ;; =============================================================================
 ;; tree@
+;; x is a tree iff it implements gen:tree
 
 (define tree%
   (class attribute%
@@ -478,6 +482,10 @@
 
 ;; -----------------------------------------------------------------------------
 ;; list@
+
+;; todo: list has an interpretation, but you should still be able to
+;; quickly get/set it as an attribute?  and it shouldn't infinite loop
+;; the projection (bc reifiable)
 
 (define list%
   (class tree%
@@ -519,12 +527,14 @@
           (new this% [rands rands])]
          [else 
           (define rrands (reverse rands))
-          (send
-           (== (with-handlers 
-                 ([exn:fail? (lambda (e) (new fail% [trace (object-name e)]))])
-                 (apply prim (reverse (cdr rrands))))
-               (car rrands))
-           update state)])))))
+          (call/cc
+           (lambda (k)
+             (send
+              (== (with-handlers 
+                    ([exn:fail? (lambda (e) (k (new fail% [trace (object-name e)])))])
+                    (apply prim (reverse (cdr rrands))))
+                  (car rrands))
+              update state)))])))))
 
 (define (car@ . rands)
   (new (functionable-constraint% car) 
@@ -973,6 +983,7 @@
       (let ([t (send state walk (car rands))]
             [v (send state walk (cadr rands))])
         (cond
+         [(equal? t v) succeed]
          [(pair? v)
           (send (conj (tree-first@ t (car v))
                       (tree-rest@ t (cdr v)))

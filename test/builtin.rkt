@@ -17,7 +17,7 @@
 #lang racket/base
 
 (require (except-in rackunit fail) 
-         rackunit/text-ui
+         rackunit/text-ui racket/list
          racket/class racket/pretty)
 
 (require "../main.rkt"
@@ -89,7 +89,15 @@
 
   (check-equal?
    (run fail)
-   (list)))
+   (list))
+
+  (check-equal?
+   (new state% [subst `((,x . 5) (,y . 6))])
+   (new state% [subst `((,y . 6) (,x . 5))]))
+
+  (check-equal?
+   (new state% [subst `((,x . 5) (,y . 6) (,z . ,x))])
+   (new state% [subst `((,y . 6) (,x . ,z) (,z . 5))])))
 
 (define-dependency-test associate-tests
   (state-tests)
@@ -207,7 +215,9 @@
    (query (f g)
           (conj (disj (≡ f 0) (≡ f 1))
                 (disj (≡ g 0) (≡ g 1))))
-   '((0 0) (1 0) (0 1) (1 1)))
+   '((0 0) (1 0) (0 1) (1 1))
+   ;; '((0 0) (0 1) (1 0) (1 1))
+   )
 
   (check-equal?
    (disj (≡ x 5) (≡ x 6))
@@ -261,6 +271,12 @@
 
   (check-equal?
    (query (x) (project x [(list 1 2 3)]))
+   '((1 2 3)))
+
+  (check-equal?
+   (query (x)
+     (conj (project x [(tree (list y1 (list y) y2))])
+           (== x (list 1 2 3))))
    '((1 2 3))))
 
 (define-dependency-test operator-tests
@@ -277,7 +293,7 @@
 
   (check-equal?
    (query 2 (x) (foo@ x))
-   '(() ())))
+   '(())))
 
 (define-dependency-test eigen-tests
   (operator-tests)
@@ -822,7 +838,7 @@
   (define@ (named-term x) (string@ x))
   (define@ (x-term x) (symbol@ x))
 
-  (define-syntax-rule (term x) (quote x))
+  (define-syntax-rule (term x) (quasiquote x))
 
   (define c0
     (term 
@@ -906,11 +922,35 @@
                (list-of@ r-term r2)
                (== r `(room ,x ,items ,e))
                (project e
-                 [(tree (list dx1 (list dx) dx2))
-                  (exists (do xf)
-                    (conj (== y xf)
-                          (== dx (list d xf))
-                          (d-opposite do d)))])))])))
+                 [(tree (list dx1 (list (list do xf)) dx2))
+                  (conj (== y xf) (d-opposite do d))])))]))
+  
+  (define rooms1 (term ,(third c1)))
+  (define room1-rooms1 (first rooms1))
+  (define exits-room1-rooms1 (first (fourth (first rooms1))))
+
+  (check-one-answer
+   (wf-connections 
+    rooms1 
+    (first exits-room1-rooms1)
+    (second exits-room1-rooms1)
+    (second room1-rooms1)))
+
+  (define@ (wf-exits-proper gamma e y)
+    (list-of@ (lambda (dx)
+                (project dx
+                  [(list d x)
+                   (wf-connections gamma d x y)]))
+              e))
+
+  ;; (check-one-answer
+  ;;  (wf-exits-proper rooms1 (fourth (first rooms1)) (second (first rooms1))))
+  ;; (check-one-answer
+  ;;  (wf-exits-proper rooms1 (fourth (second rooms1)) (second (second rooms1))))
+  ;; (check-one-answer
+  ;;  (wf-exits-proper rooms1 (fourth (third rooms1)) (second (third rooms1))))
+
+  )
 
 (define builtin-test-suite
   (test-suite 
