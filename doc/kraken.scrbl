@@ -191,6 +191,6 @@ for error reporting and printing.
                    (lookup@ d x t))))]))
 (exists (x) (lookup@ `((y . int)) x `bool))
 (query (x) (lookup@ `((y . int)) x `int))
-(query (x) (lookup@ `((y . int)) x `bool))
+(query (x y) (lookup@ `((,x . bool)) y `bool))
 ]}
 
