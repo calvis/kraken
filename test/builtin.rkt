@@ -557,7 +557,9 @@
 
   (check-equal?
    (query (x y) (length@ (tree `(,x ,y)) 2))
-   '(((lv.0 lv.1) ()) (() (lv.0 lv.1)) ((lv.0) (lv.1))))
+   ;; '((() (lv.0 lv.1)) ((lv.0 lv.1) ()) ((lv.0) (lv.1)))
+   '(((lv.0 lv.1) ()) (() (lv.0 lv.1)) ((lv.0) (lv.1)))
+   )
 
   (check-run-fail
    (exists (x y) (length@ (tree `(,x (3) ,y)) 0)))

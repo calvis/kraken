@@ -637,22 +637,20 @@
 ;; -----------------------------------------------------------------------------
 
 (define lambda%
-  (class operator%
+  (class* operator% (augmentable<%>)
     (super-new)
     (init-field sexp init [scope '()])
     (define/override (sexp-me) sexp)
     (define/public (run state)
       (send (send (init) add-scope scope) run state))
-    (define/public (update state) 
-      (send (send (init) add-scope scope) update state))
+    (define/public (update state)
+      this)
     (define/public (add-scope ls)
       (new this% [sexp sexp] [init init] [scope (cons ls scope)]))
     (define/public (combine state)
       (send state set-stored this))
     (define/public (augment state)
-      (delay
-        (bindm (send (send (init) add-scope scope) run state)
-               (lambda (state) (delay (send state augment))))))))
+      (delay (send (send (init) add-scope scope) augment state)))))
 
 (require (for-syntax racket/pretty))
 (define-syntax (lambda@ stx)
@@ -744,6 +742,7 @@
        [else (new disj% [states result])]))
 
     (define/public (run state)
+      ;; (send (update state) combine state)
       (delay (let loop ([states states])
                (cond
                 [(null? (cdr states)) 
