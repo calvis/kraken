@@ -45,7 +45,7 @@
   (class* object% (equal<%> printable<%>)
     (super-new)
 
-    (init-field [subst '()] [store '()])
+    (init-field [subst '()] [store '()] [eigen #f])
 
     (define (idemize subst)
       (map (lambda (p) (list (car p) (walk/internal (cdr p) subst))) subst))
@@ -68,6 +68,10 @@
 
     (unless (andmap object? store)
       (error 'state% "bad store\n store: ~a" store))
+
+    (define/public (get-eigen) eigen)
+    (define/public (set-eigen) 
+      (new this% [subst subst] [store store] [eigen #t]))
     
     (define/public (equal-to? obj recur?)
       (and (is-a? obj this%)
@@ -84,7 +88,7 @@
 
     (define/public (add-scope ls)
       (for/fold
-        ([state (add-subst (new this%))])
+        ([state (new this% [subst subst] [eigen eigen])])
         ([thing store])
         (send state set-stored (send thing add-scope ls))))
 
@@ -104,7 +108,10 @@
        [else #f]))
 
     (define/public (set-stored thing)
-      (new this% [subst subst] [store (cons thing store)]))
+      (new this% 
+           [subst subst]
+           [store (cons thing store)]
+           [eigen eigen]))
 
     (define/public (reify v)
       (let ([v (walk v)])
@@ -113,12 +120,15 @@
     (define/public (associate x v [scope '()])
       (let ([x (walk x)] [v (walk v)])
         (let ([state (unify x v)])
-          (define-values (e* x*)
-            (partition eigen? (related-to 
-                               (filter* cvar? (cons x v)) subst)))
           (cond
-           [(check-scope? e* x* scope) state]
-           [else (new fail% [trace `(eigen ,x ,v)])]))))
+           [(send state get-eigen)
+             (define-values (e* x*)
+               (partition eigen? (related-to 
+                                  (filter* cvar? (cons x v)) subst)))
+             (cond
+              [(check-scope? e* x* scope) state]
+              [else (new fail% [trace `(eigen ,x ,v)])])]
+           [else state]))))
 
     (define/public (unify x v)
       (cond
@@ -127,12 +137,16 @@
         (send x ->rel v this)]
        [(and (is-a? v functionable<%>) (not (object? x)))
         (send v ->rel x this)]
-       [(var? x) 
-        (send this add-store 
-              (new this% [subst (cons (cons x v) subst)]))]
+       [(var? x)
+        (add-store 
+         (new this%
+              [subst (cons (cons x v) subst)]
+              [eigen (or eigen (any/eigen? v))]))]
        [(var? v)
-        (send this add-store
-              (new this% [subst (cons (cons v x) subst)]))]
+        (add-store
+         (new this% 
+              [subst (cons (cons v x) subst)]
+              [eigen (or eigen (any/eigen? x))]))]
        [(and (pair? x) (pair? v))
         (send (unify (car x) (car v)) unify (cdr x) (cdr v))]
        [(tree? x)
@@ -146,13 +160,14 @@
 
     (define/public (add-subst state)
       (for/fold 
-        ([state state])
+        ([state (if eigen (send state set-eigen) state)])
         ([p subst])
+        ;; (send-generic state state-associate (car p) (cdr p))
         (send state associate (car p) (cdr p))))
 
     (define/public (add-store state)
       (for/fold
-        ([state (add-subst state)])
+        ([state state])
         ([thing store])
         (send (send thing update state) combine state)))
 
@@ -165,11 +180,15 @@
     (define/public (update state^)
       (define updated-subst
         (for/fold
-          ([state (new this%)])
+          ([state (new this% [eigen eigen])])
           ([p subst])
           (send state associate 
                 (send state^ walk (car p))
-                (send state^ walk (cdr p)))))
+                (send state^ walk (cdr p)))
+          #;
+          (send-generic state state-associate 
+                        (send state^ walk (car p))
+                        (send state^ walk (cdr p)))))
       (define updated-store
         (for/fold
           ([state updated-subst])
@@ -187,10 +206,12 @@
       (delay
         (for/fold 
           ([a-inf (or (and state (add-subst state)) 
-                      (new this% [subst subst]))])
+                      (new this% [subst subst] [eigen eigen]))])
           ([thing store])
           (bindm a-inf (lambda (state) 
                          (delay (send thing augment state)))))))))
+
+(define state-associate (generic state% associate))
 
 ;; check-scope : 
 ;;   [List-of EigenVar] [List-of CVar] [List-of [List-of CVar]] -> Boolean
@@ -283,7 +304,7 @@
     (define/public (get-sexp-rator) (object-name this%))
 
     (define/public (sexp-me)
-      (cons (send this get-sexp-rator) rands))
+      (cons (get-sexp-rator) rands))
     (define/public (custom-print p depth)
       (display (sexp-me) p))
     (define/public (custom-write p)
@@ -295,7 +316,7 @@
       (new this% [rands rands] [scope scope]))
 
     (define/public (run state)
-      (send (send this update state) combine state))
+      (send (update state) combine state))
 
     (define/pubment (update state)
       (call/cc
@@ -329,10 +350,9 @@
                   [else (values state (cons r rands))])))
              (bindm a-inf
                     (lambda (state)
-                      (send (send this update-rands 
-                                  (reverse new-rands))
+                      (send (update-rands (reverse new-rands))
                             run state)))]
-            [else (send this run state)])))))
+            [else (run state)])))))
 
     (define/public (merge obj state)
       (cond
@@ -343,7 +363,7 @@
       (cond
        [(send state has-stored this)
         => (lambda (this^)
-             (send this merge this^ (send state remove-stored this^)))]
+             (merge this^ (send state remove-stored this^)))]
        [else (send state set-stored this)]))))
 
 (define ((update-functionable state k) r)
@@ -388,11 +408,12 @@
 (define (partial-attribute-mixin %)
   (class % 
     (super-new)
+    (inherit get-sexp-rator)
     (inherit-field rands)
     (init-field [partial #f])
 
     (define/override (sexp-me) 
-      (cons (send this get-sexp-rator) 
+      (cons (get-sexp-rator) 
             (append rands (if partial (list partial) (list)))))
 
     (define/override (update-rands rands)
@@ -407,7 +428,7 @@
       (define result (send new-partial update state))
       (cond
        [(is-a? result disj%)
-        (send this update-partial result)]
+        (update-partial result)]
        [else result]))))
 
 ;; =============================================================================
@@ -619,13 +640,16 @@
     (define/public (update state)
       (let ([x (send state walk x)]
             [v (send state walk v)])
-        (send (send (new state%) associate x v scope)
-              update state)))
+        (send ;; (send-generic (new state%) state-associate x v scope)
+         (send (new state%) associate x v scope)
+         update state)))
 
     (define/public (combine state)
+      ;; (send-generic state state-associate x v scope)
       (send state associate x v scope))
 
     (define/public (run state)
+      ;; (send-generic state state-associate x v scope)
       (send state associate x v scope))
 
     (define/public (add-scope ls)

@@ -113,7 +113,7 @@
 ;; =============================================================================
 ;; reification
 
-(provide extend-rs reify-s filter*)
+(provide extend-rs reify-s filter* any/eigen?)
 
 (define (extend-rs v s)
   `((,v . ,(reify-n v (size-s s))) . ,s))
@@ -135,4 +135,10 @@
    [(f t) (list t)]
    [(pair? t) (append (filter* f (car t)) (filter* f (cdr t)))]
    [else (list)]))
+
+(define (any/eigen? t)
+  (cond
+   [(eigen? t) #t]
+   [(pair? t) (or (any/eigen? (car t)) (any/eigen? (cdr t)))]
+   [else #f]))
 

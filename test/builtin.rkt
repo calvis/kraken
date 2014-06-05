@@ -945,14 +945,12 @@
                    (wf-connections gamma d x y)]))
               e))
 
-  ;; (check-one-answer
-  ;;  (wf-exits-proper rooms1 (fourth (first rooms1)) (second (first rooms1))))
-  ;; (check-one-answer
-  ;;  (wf-exits-proper rooms1 (fourth (second rooms1)) (second (second rooms1))))
-  ;; (check-one-answer
-  ;;  (wf-exits-proper rooms1 (fourth (third rooms1)) (second (third rooms1))))
-
-  )
+  (check-one-answer
+   (wf-exits-proper rooms1 (fourth (first rooms1)) (second (first rooms1))))
+  (check-one-answer
+   (wf-exits-proper rooms1 (fourth (second rooms1)) (second (second rooms1))))
+  (check-one-answer
+   (wf-exits-proper rooms1 (fourth (third rooms1)) (second (third rooms1)))))
 
 (define builtin-test-suite
   (test-suite 
@@ -973,14 +971,19 @@
    (time (tree-tests))
    (time (length-tests))
    (time (list-of-tests))
-
+   
    (time (stlc-tests))
    (time (dd-tests))))
 
 (module+ test
+  (require profile)
   (parameterize ([pretty-print-columns 102]
                  [print-reader-abbreviations #t])
-    (time (void (run-tests builtin-test-suite)))))
+    (time (void (run-tests builtin-test-suite)))
+    #;
+    (profile (time (void (run-tests builtin-test-suite)))
+             #:repeat 100
+             #:use-errortrace? #t)))
 
 (module+ main
   (require (submod ".." test)))
