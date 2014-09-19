@@ -35,6 +35,13 @@
 
 (require (for-syntax racket/base syntax/parse))
 
+(require racket/class racket/function racket/list racket/pretty racket/stream
+         (except-in racket/match ==))
+(require (for-syntax racket/base syntax/parse racket/syntax))
+(require "data.rkt" "infs.rkt")
+
+(provide (all-defined-out))
+
 (require "data.rkt"
          "interfaces.rkt"
          "infs.rkt")
@@ -514,60 +521,6 @@
 (define (list@ ls)
   (new (partial-attribute-mixin list%) [rands (list ls)]))
 
-;; -----------------------------------------------------------------------------
-
-(define (functionable-constraint% prim)
-  (class* relation% (functionable<%>)
-    (super-new)
-    (inherit-field rands)
-
-    (define/override (get-sexp-rator) 
-      (object-name prim))
-
-    (define/public (->out state k)
-      (let ([rands (send state walk (map (update-functionable state k) rands))])
-        (cond
-         [(ormap (lambda (r) (or (var? r) (object? r))) rands) 
-          (new this% [rands rands])]
-         [else 
-          (with-handlers 
-            ([exn:fail? (lambda (e) (k (new fail% [trace (object-name e)])))])
-            (apply prim rands))])))
-
-    (define/public (->rel v state)
-      (send (new this% [rands (append rands (list v))]) run state))
-
-    (define/augment (update state)
-      (let ([rands (send state walk rands)])
-        (cond
-         [(ormap (lambda (r) (or (var? r) (object? r))) rands)
-          (new this% [rands rands])]
-         [else 
-          (define rrands (reverse rands))
-          (call/cc
-           (lambda (k)
-             (send
-              (== (with-handlers 
-                    ([exn:fail? (lambda (e) (k (new fail% [trace (object-name e)])))])
-                    (apply prim (reverse (cdr rrands))))
-                  (car rrands))
-              update state)))])))))
-
-(define (car@ . rands)
-  (new (functionable-constraint% car) 
-       [rands rands]))
-
-(define (cdr@ . rands)
-  (new (functionable-constraint% cdr)
-       [rands rands]))
-
-(require racket/class racket/function racket/list racket/pretty racket/stream
-         (except-in racket/match ==))
-(require (for-syntax racket/base syntax/parse racket/syntax))
-(require "data.rkt" "infs.rkt")
-
-(provide (all-defined-out))
-
 ;; =============================================================================
 ;; existentials
 
@@ -690,7 +643,9 @@
     (init-field [clauses '()])
 
     (define/override (sexp-me)
-      (cons (object-name this%) clauses))
+      (if (null? (cdr clauses))
+          (send (car clauses) sexp-me)
+          (cons (object-name this%) clauses)))
 
     (define/public (run state)
       (define ((run-state g) state) (send g run state))
@@ -722,14 +677,12 @@
       (new conj% [clauses new-clauses]))
 
     (define/public (augment state)
+      (define ((send-augment g) state) (send g augment state))
       (delay (for/fold ([a-inf state]) ([g clauses])
-               (bindm a-inf (lambda (state) (send g augment state))))))))
+               (bindm a-inf (send-augment g)))))))
 
 (define (conj . clauses)
-  (cond
-   [(null? clauses) (new fail%)]
-   [(null? (cdr clauses)) (car clauses)]
-   [else (new conj% [clauses clauses])]))
+  (new conj% [clauses clauses]))
 
 ;; -----------------------------------------------------------------------------
 ;; disjunction
@@ -764,7 +717,6 @@
        [else (new disj% [states result])]))
 
     (define/public (run state)
-      ;; (send (update state) combine state)
       (delay (let loop ([states states])
                (cond
                 [(null? (cdr states)) 
