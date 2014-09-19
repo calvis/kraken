@@ -23,14 +23,14 @@
          (except-in racket/match ==))
 (require "interfaces.rkt"
          "data.rkt"
-         "infs.rkt")
+         "infs.rkt"
+         "eigen.rkt")
 (provide (all-defined-out))
 
 (require racket/class
          racket/function
          racket/stream
          racket/list
-         racket/set
          racket/pretty)
 
 (require (for-syntax racket/base syntax/parse))
@@ -38,15 +38,18 @@
 (require racket/class racket/function racket/list racket/pretty racket/stream
          (except-in racket/match ==))
 (require (for-syntax racket/base syntax/parse racket/syntax))
-(require "data.rkt" "infs.rkt")
 
 (provide (all-defined-out))
 
 (require "data.rkt"
          "interfaces.rkt"
-         "infs.rkt")
+         "infs.rkt"
+         "eigen.rkt")
 
 (provide (all-defined-out))
+
+;; =============================================================================
+;; a State is a (new state% [subst Substitution] [store ConstraintStore])
 
 (define state%
   (class* object% (equal<%> printable<%>)
@@ -60,12 +63,9 @@
     (define sexp-me
       (list (object-name this%) (idemize subst) store))
 
-    (define/public (custom-print p depth)
-      (display sexp-me p))
-    (define/public (custom-write p)
-      (write sexp-me p))
-    (define/public (custom-display p) 
-      (display sexp-me p))
+    (define/public (custom-print p depth) (display sexp-me p))
+    (define/public (custom-write p)       (write sexp-me p))
+    (define/public (custom-display p)     (display sexp-me p))
 
     (unless (list? subst)
       (error 'state% "subst is not a list\n subst: ~a" subst))
@@ -77,8 +77,7 @@
       (error 'state% "bad store\n store: ~a" store))
 
     (define/public (get-eigen) eigen)
-    (define/public (set-eigen) 
-      (new this% [subst subst] [store store] [eigen #t]))
+    (define/public (set-eigen) (new this% [subst subst] [store store] [eigen #t]))
     
     (define/public (equal-to? obj recur?)
       (and (is-a? obj this%)
@@ -140,10 +139,6 @@
     (define/public (unify x v)
       (cond
        [(eq? x v) this]
-       [(and (is-a? x functionable<%>) (not (object? v)))
-        (send x ->rel v this)]
-       [(and (is-a? v functionable<%>) (not (object? x)))
-        (send v ->rel x this)]
        [(var? x)
         (add-store 
          (new this%
@@ -214,49 +209,6 @@
           (bindm a-inf (lambda (state) 
                          (delay (send thing augment state)))))))))
 
-(define state-associate (generic state% associate))
-
-;; check-scope : 
-;;   [List-of EigenVar] [List-of CVar] [List-of [List-of CVar]] -> Boolean
-;; returns #t if scope is correctly observed, and #f otherwise
-;; examples: 
-;;    ()  (x) ((x) (e) (y)) = #t
-;;    (e) (x) ((x) (e) (y)) = #f
-;;    (e) (y) ((x) (e) (y)) = #t
-(define (check-scope? e* x* scope)
-  (or (null? e*)
-      (null? scope)
-      (and (not (ormap (lambda (x) (memq x x*)) (car scope)))
-           (check-scope?
-            (for/fold ([e* e*]) ([e (car scope)]) (remq e e*))
-            (for/fold ([x* x*]) ([x (car scope)]) (remq x x*))
-            (cdr scope)))))
-
-;; [List-of CVar] Subsitution -> [List-of CVar]
-(define (related-to x* s)
-  ;; [Set-of CVar]
-  ;; variables we want to find the related variables to
-  (define X (list->seteq x*))
-
-  ;; [List-of [Set-of CVar]]
-  ;; sets of all related variables based on unifications in s
-  (define related (map (compose list->seteq (lambda (x) (filter* cvar? x))) s))
-
-  ;; [Set-of Variable] [List-of [Set-of Variable] -> [Set-of Variable]
-  ;; computes all variables that are related to variables in X
-  (define (loop X related)
-    (cond
-     [(null? related) X]
-     [else 
-      (define-values (r not-r)
-        (partition (lambda (S) (not (set-empty? (set-intersect X S)))) related))
-      (cond
-       [(null? r) X]
-       [else (loop (apply set-union X r) not-r)])]))
-
-  ;; returns the total set of related variables at the end
-  (set->list (loop X related)))
-
 (define fail%
   (class* state% (printable<%>)
     (init-field [trace #f])
@@ -286,9 +238,6 @@
 
 (define succeed (new state%))
 (define fail (new fail%))
-
-(define (filter-not-fail stream)
-  (stream-filter (compose not (curryr is-a? fail%)) stream))
 
 ;; =============================================================================
 ;; Base is a (new base% [rands [List-of Value]])
@@ -322,40 +271,13 @@
       (send (update state) combine state))
 
     (define/pubment (update state)
-      (call/cc
-       (lambda (k)
-         (let ([rands^ (map (update-functionable state k) rands)])
-           (cond
-            [(findf (curryr is-a? functionable<%>) rands^)
-             (update-rands rands^)]
-            [(andmap eq? rands rands^)
-             (inner this update state)]
-            [else (send (update-rands rands^) update state)])))))
+      (inner this update state))
 
     (define/public (add-scope ls)
       (new this% [rands rands] [scope (cons ls scope)]))
 
     (define/public (augment state)
-      (call/cc 
-       (lambda (k)
-         (let ([rands (map (update-functionable state k) rands)])
-           (cond
-            [(findf (curryr is-a? functionable<%>) rands)
-             (define-values (a-inf new-rands)
-               (for/fold ([a-inf state] [rands '()]) ([r rands])
-                 (cond
-                  [(is-a? r functionable<%>)
-                   (let ([out (var 'out)])
-                     (values (bindm a-inf
-                                    (lambda (state)
-                                      (send r ->rel out state)))
-                             (cons out rands)))]
-                  [else (values state (cons r rands))])))
-             (bindm a-inf
-                    (lambda (state)
-                      (send (update-rands (reverse new-rands))
-                            run state)))]
-            [else (run state)])))))
+      (run state))
 
     (define/public (merge obj state)
       (cond
@@ -368,9 +290,6 @@
         => (lambda (this^)
              (merge this^ (send state remove-stored this^)))]
        [else (send state set-stored this)]))))
-
-(define ((update-functionable state k) r)
-  (if (is-a? r functionable<%>) (send r ->out state k) r))
 
 ;; -----------------------------------------------------------------------------
 
@@ -488,9 +407,8 @@
          [(list? t) succeed]
          [(tree? t)
           (match-define (tree nodes) t)
-          (send
-           (apply conj (for/list ([node nodes]) (tree@ node)))
-           update state)]
+          (send (apply conj (for/list ([node nodes]) (tree@ node)))
+                update state)]
          [(var? t) this]
          [else fail])))
 
@@ -606,7 +524,7 @@
 
 ;; -----------------------------------------------------------------------------
 
-(define lambda%
+(define anonymous-relation%
   (class* operator% (augmentable<%>)
     (super-new)
     (init-field sexp init [scope '()])
@@ -623,9 +541,9 @@
       (delay (send (send (init) add-scope scope) augment state)))))
 
 (require (for-syntax racket/pretty))
-(define-syntax (lambda@ stx)
+(define-syntax (relation@ stx)
   (syntax-parse stx
-    [(lambda@
+    [(relation@
        (~optional (~seq #:name name))
        (args ...) body:expr)
      (define/with-syntax rel-name
@@ -635,7 +553,7 @@
      (syntax/loc stx
        (lambda (args ...)
          (let ([th (lambda () body)])
-           (new lambda% [sexp (list rel-name args ...)] [init th]))))]))
+           (new anonymous-relation% [sexp (list rel-name args ...)] [init th]))))]))
 
 (define conj%
   (class operator%
@@ -784,7 +702,7 @@
               (new this% [stmt new-stmt])
               (apply disj newer-stmt))])]
        [(is-a? new-stmt disj%)
-        (apply disj (map (lambda (state) (new this% [stmt state]))
+        (apply conj (map (lambda (state) (new this% [stmt state]))
                          (get-field states new-stmt)))]
        [else (new this% [stmt new-stmt])]))
 
@@ -917,7 +835,6 @@
       [quoted? #`(or (var? #,thing) (eq? #,thing 'x))]
       [else #`t])]
     [x
-     #:fail-unless quoted? "app"
      #`(or (var? #,thing) (eq? #,thing 'x))]))
 
 (require (for-syntax racket/list))

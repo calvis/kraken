@@ -21,7 +21,8 @@
          racket/class racket/pretty)
 
 (require "../main.rkt"
-         "../src/testing.rkt")
+         "../src/testing.rkt"
+         "../src/eigen.rkt")
 
 (define (bar)
   (printf "====================================================\n"))
@@ -283,7 +284,7 @@
   (associate-tests conj-tests disj-tests project-tests)
 
   (define foo@
-    (lambda@ (x)
+    (relation@ (x)
       (disj (== x (list)) (foo@ x))))
 
   ;; x is never a pair, so the conj should never be joined

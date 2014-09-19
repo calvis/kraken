@@ -90,7 +90,7 @@
   (new +% [rands n*]))
 
 (define +%
-  (class* relation% (functionable<%>)
+  (class* relation% ()
     (super-new)
     (inherit-field [n* rands])
 
@@ -114,7 +114,6 @@
       (let ([u (send state walk u)]
             [v (send state walk v)]
             [w (send state walk w)])
-        ;; (printf "update/3: ~a ~a ~a\n ~a\n" u v w state)
         (cond
          [(or (var? u) (var? v) (var? w))
           (let ([du (or (send state get-stored dom% u) 
@@ -145,20 +144,7 @@
                             update state)))))]
          [(and (number? u) (number? v) (number? w))
           (if (= (+ u v) w) (new state%) (new fail% [trace this]))]
-         [else (new fail% [trace this])])))
-
-    ;; (+@ n*) = out
-    (define/public (->out state k)
-      (let ([n* (send state walk n*)])
-        (cond
-         [(andmap number? n*) (apply + n*)]
-         [else 
-          (define-values (m* x*) (partition number? n*))
-          (new this% [rands (cons (apply + m*) x*)])])))
-
-    (define/public (->rel n^ state)
-      (let ([n* (send state walk n*)])
-        (send (apply +@ (append n* (list n^))) run state)))))
+         [else (new fail% [trace this])])))))
 
 ;; =============================================================================
 ;; dom abstractions

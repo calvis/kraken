@@ -18,7 +18,7 @@ miniKanren, Kraken does not make any attempt to be backwards
 compatible.
 
 @(define kr-eval (make-base-eval))
-@(interaction-eval #:eval kr-eval (require (for-syntax racket/base) kraken))
+@(interaction-eval #:eval kr-eval (require kraken))
 
 @section{States}
 
@@ -139,7 +139,8 @@ lexically bound within the @racket[body].
 #:eval kr-eval
 (exists (x y) 
   (project x 
-    ['(1 2 3) (≡ y 5)]))
+    [(cons 1 2) (≡ y 5)]
+    [(cons 3 4) (≡ y 6)]))
 (query (x y) 
   (conj (project x [(list) (≡ y 5)]) 
         (≡ x (list))))
@@ -165,7 +166,7 @@ substituted in its place.
 
 @section{Relations}
 
-@defform[(lambda@ (args ...) body)
+@defform[(relation@ (args ...) body)
          #:contracts ([body statement?])]{
 
 Returns a relation that parameterizes @racket[body] over the
@@ -174,7 +175,7 @@ Returns a relation that parameterizes @racket[body] over the
 @examples[
 #:eval kr-eval
 (define smile
-  (lambda@ (x)
+  (relation@ (x)
     (disj (≡ x ":)")
           (≡ x ":-)"))))
 (exists (x) (smile x))

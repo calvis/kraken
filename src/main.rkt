@@ -66,6 +66,6 @@
 (define-syntax (define@ stx)
   (syntax-parse stx
     [(define@ (name@ args ...) interp)
-     #`(define name@ (lambda@ #:name name@ (args ...) interp))]))
+     #`(define name@ (relation@ #:name name@ (args ...) interp))]))
 
 
