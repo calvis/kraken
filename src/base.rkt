@@ -20,29 +20,15 @@
          racket/function
          racket/stream
          racket/list
+         racket/pretty
          (except-in racket/match ==))
+
+(require (for-syntax racket/base
+                     syntax/parse
+                     racket/syntax))
+
 (require "interfaces.rkt"
          "data.rkt"
-         "infs.rkt"
-         "eigen.rkt")
-(provide (all-defined-out))
-
-(require racket/class
-         racket/function
-         racket/stream
-         racket/list
-         racket/pretty)
-
-(require (for-syntax racket/base syntax/parse))
-
-(require racket/class racket/function racket/list racket/pretty racket/stream
-         (except-in racket/match ==))
-(require (for-syntax racket/base syntax/parse racket/syntax))
-
-(provide (all-defined-out))
-
-(require "data.rkt"
-         "interfaces.rkt"
          "infs.rkt"
          "eigen.rkt")
 
@@ -52,10 +38,19 @@
 ;; a State is a (new state% [subst Substitution] [store ConstraintStore])
 
 (define state%
-  (class* object% (equal<%> printable<%>)
+  (class* object% (equal<%> 
+                   printable<%>
+                   runnable<%>
+                   updateable<%>)
     (super-new)
 
+    ;; subst is a Substitution
+    ;; store is a ConstraintStore
+    ;; eigen is a Boolean - #t if eigens have been introduced, #f otherwise
     (init-field [subst '()] [store '()] [eigen #f])
+
+    ;; -------------------------------------------------------------------------
+    ;; printing
 
     (define (idemize subst)
       (map (lambda (p) (list (car p) (walk/internal (cdr p) subst))) subst))
@@ -67,6 +62,9 @@
     (define/public (custom-write p)       (write sexp-me p))
     (define/public (custom-display p)     (display sexp-me p))
 
+    ;; -------------------------------------------------------------------------
+    ;; checking our inner values
+
     (unless (list? subst)
       (error 'state% "subst is not a list\n subst: ~a" subst))
 
@@ -76,9 +74,21 @@
     (unless (andmap object? store)
       (error 'state% "bad store\n store: ~a" store))
 
+    ;; -------------------------------------------------------------------------
+    ;; eigens
+
     (define/public (get-eigen) eigen)
     (define/public (set-eigen) (new this% [subst subst] [store store] [eigen #t]))
     
+    (define/public (add-scope ls)
+      (for/fold
+        ([state (new this% [subst subst] [eigen eigen])])
+        ([thing store])
+        (send state set-stored (send thing add-scope ls))))
+
+    ;; -------------------------------------------------------------------------
+    ;; equality 
+
     (define/public (equal-to? obj recur?)
       (and (is-a? obj this%)
            (recur? (sort (idemize subst) <
@@ -92,49 +102,23 @@
     (define/public (equal-secondary-hash-code-of hash-code)
       (+ (hash-code subst) (* 10 (hash-code store))))
 
-    (define/public (add-scope ls)
-      (for/fold
-        ([state (new this% [subst subst] [eigen eigen])])
-        ([thing store])
-        (send state set-stored (send thing add-scope ls))))
+    ;; -------------------------------------------------------------------------
+    ;; substitution
 
     (define/public (walk u)
       (walk/internal u subst))
 
-    (define/public (remove-stored thing)
-      (new this% [subst subst] [store (remove thing store)]))
-
-    (define/public (has-stored thing)
-      (findf (curry equal? thing) store))
-
-    (define/public (get-stored x% x)
-      (cond
-       [(findf (curry equal? (new x% [rands (list x)])) store)
-        => (lambda (thing2) (send thing2 get-value))]
-       [else #f]))
-
-    (define/public (set-stored thing)
-      (new this% 
-           [subst subst]
-           [store (cons thing store)]
-           [eigen eigen]))
-
-    (define/public (reify v)
-      (let ([v (walk v)])
-        (walk/internal v (reify-s v '()))))
-
     (define/public (associate x v [scope '()])
       (let ([x (walk x)] [v (walk v)])
-        (let ([state (unify x v)])
+        (define state (unify x v))
+        (cond
+         [(send state get-eigen)
+          (define cvars (filter* cvar? (cons x v)))
+          (define-values (e* x*) (partition eigen? (related-to cvars subst)))
           (cond
-           [(send state get-eigen)
-             (define-values (e* x*)
-               (partition eigen? (related-to 
-                                  (filter* cvar? (cons x v)) subst)))
-             (cond
-              [(check-scope? e* x* scope) state]
-              [else (new fail% [trace `(eigen ,x ,v)])])]
-           [else state]))))
+           [(check-scope? e* x* scope) state]
+           [else (new fail% [trace `(eigen ,x ,v)])])]
+         [else state])))
 
     (define/public (unify x v)
       (cond
@@ -164,14 +148,42 @@
       (for/fold 
         ([state (if eigen (send state set-eigen) state)])
         ([p subst])
-        ;; (send-generic state state-associate (car p) (cdr p))
         (send state associate (car p) (cdr p))))
+
+    (define/public (reify v)
+      (let ([v (walk v)])
+        (walk/internal v (reify-s v '()))))
+
+    ;; -------------------------------------------------------------------------
+    ;; constraint store
 
     (define/public (add-store state)
       (for/fold
         ([state state])
         ([thing store])
         (send (send thing update state) combine state)))
+
+    (define/public (remove-stored thing)
+      (new this% [subst subst] [store (remove thing store)]))
+
+    (define/public (has-stored thing)
+      (findf (curry equal? thing) store))
+
+    (define/public (get-stored x% x)
+      (cond
+       ;; TODO: hack
+       [(findf (curry equal? (new x% [rands (list x)])) store)
+        => (lambda (thing2) (send thing2 get-value))]
+       [else #f]))
+
+    (define/public (set-stored thing)
+      (new this% 
+           [subst subst]
+           [store (cons thing store)]
+           [eigen eigen]))
+
+    ;; -------------------------------------------------------------------------
+    ;; interface
 
     (define/public (run state)
       (add-store (add-subst state)))
@@ -199,31 +211,31 @@
 
     (define/public (fail?) #f)
 
-    ;; allows final computations to happen
     (define/public (augment [state #f])
       (delay
         (for/fold 
-          ([a-inf (or (and state (add-subst state)) 
+          ([a-inf (or (and state (add-subst state))
                       (new this% [subst subst] [eigen eigen]))])
           ([thing store])
-          (bindm a-inf (lambda (state) 
-                         (delay (send thing augment state)))))))))
+          (bindm a-inf (lambda (state) (send thing augment state))))))))
 
+;; a Succeed is a (new state%)
+(define succeed (new state%))
+
+;; a Fail is a (new fail%) or (new fail% [trace Any]), where the trace
+;; is an optional field that contains something relating to the cause
+;; of the failure
 (define fail%
   (class* state% (printable<%>)
     (init-field [trace #f])
     (super-new)
 
     (define sexp-me
-      (cons (object-name this%)
-            (if trace (list trace) (list))))
+      (cons (object-name this%) (if trace (list trace) (list))))
 
-    (define/override (custom-print p depth)
-      (display sexp-me p))
-    (define/override (custom-write p)
-      (write sexp-me p))
-    (define/override (custom-display p) 
-      (display sexp-me p))
+    (define/override (custom-print p depth) (display sexp-me p))
+    (define/override (custom-write p)       (write sexp-me p))
+    (define/override (custom-display p)     (display sexp-me p))
 
     (define/override (augment state) this)
     (define/override (associate x v [scope '()]) this)
@@ -235,8 +247,6 @@
     (define/override (update state) this)
     (define/override (combine state) this)
     (define/override (trivial?) #f)))
-
-(define succeed (new state%))
 (define fail (new fail%))
 
 ;; =============================================================================
