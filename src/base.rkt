@@ -25,7 +25,10 @@
 
 (require (for-syntax racket/base
                      syntax/parse
-                     racket/syntax))
+                     racket/syntax
+                     racket/pretty
+                     racket/function
+                     racket/list))
 
 (require "interfaces.rkt"
          "data.rkt"
@@ -41,7 +44,8 @@
   (class* object% (equal<%> 
                    printable<%>
                    runnable<%>
-                   updateable<%>)
+                   updateable<%>
+                   augmentable<%>)
     (super-new)
 
     ;; subst is a Substitution
@@ -53,7 +57,8 @@
     ;; printing
 
     (define (idemize subst)
-      (map (lambda (p) (list (car p) (walk/internal (cdr p) subst))) subst))
+      (for/list ([p subst]) 
+        (list (car p) (walk/internal (cdr p) subst))))
 
     (define sexp-me
       (list (object-name this%) (idemize subst) store))
@@ -114,7 +119,8 @@
         (cond
          [(send state get-eigen)
           (define cvars (filter* cvar? (cons x v)))
-          (define-values (e* x*) (partition eigen? (related-to cvars subst)))
+          (define-values (e* x*) 
+            (partition eigen? (related-to cvars subst)))
           (cond
            [(check-scope? e* x* scope) state]
            [else (new fail% [trace `(eigen ,x ,v)])])]
@@ -170,17 +176,17 @@
       (findf (curry equal? thing) store))
 
     (define/public (get-stored x% x)
+      (define equal-attribute?
+        (curry equal? (new x% [rands (list x)])))
       (cond
        ;; TODO: hack
-       [(findf (curry equal? (new x% [rands (list x)])) store)
-        => (lambda (thing2) (send thing2 get-value))]
+       [(findf equal-attribute? store)
+        => (lambda (attr) (send attr get-value))]
        [else #f]))
 
     (define/public (set-stored thing)
-      (new this% 
-           [subst subst]
-           [store (cons thing store)]
-           [eigen eigen]))
+      (define new-store (cons thing store))
+      (new this% [subst subst] [store new-store] [eigen eigen]))
 
     ;; -------------------------------------------------------------------------
     ;; interface
@@ -192,9 +198,11 @@
       (run state))
 
     (define/public (update state^)
+      (define init-state
+        (new this% [eigen eigen]))
       (define updated-subst
         (for/fold
-          ([state (new this% [eigen eigen])])
+          ([state init-state])
           ([p subst])
           (send state associate 
                 (send state^ walk (car p))
@@ -212,12 +220,14 @@
     (define/public (fail?) #f)
 
     (define/public (augment [state #f])
+      (define a-inf
+        (or (and state (add-subst state))
+            (new this% [subst subst] [eigen eigen])))
+      (define ((send-augment thing) state)
+        (send thing augment state))
       (delay
-        (for/fold 
-          ([a-inf (or (and state (add-subst state))
-                      (new this% [subst subst] [eigen eigen]))])
-          ([thing store])
-          (bindm a-inf (lambda (state) (send thing augment state))))))))
+        (for/fold ([a-inf a-inf]) ([thing store])
+          (bindm a-inf (send-augment thing)))))))
 
 ;; a Succeed is a (new state%)
 (define succeed (new state%))
@@ -226,7 +236,7 @@
 ;; is an optional field that contains something relating to the cause
 ;; of the failure
 (define fail%
-  (class* state% (printable<%>)
+  (class state%
     (init-field [trace #f])
     (super-new)
 
@@ -250,7 +260,7 @@
 (define fail (new fail%))
 
 ;; =============================================================================
-;; Base is a (new base% [rands [List-of Value]])
+;; a Base is a (new base% [rands [List-of Value]])
 
 (define base%
   (class* object% (printable<%>
@@ -258,24 +268,22 @@
                    updateable<%>
                    combineable<%>)
     (super-new)
-
     (init-field [rator this%] [rands '()] [scope '()])
+
+    ;; -------------------------------------------------------------------------
+    ;; printing
 
     (define/public (get-rator) this%)
     (define/public (get-rands) rands)
     (define/public (get-sexp-rator) (object-name this%))
 
-    (define/public (sexp-me)
-      (cons (get-sexp-rator) rands))
-    (define/public (custom-print p depth)
-      (display (sexp-me) p))
-    (define/public (custom-write p)
-      (write   (sexp-me) p))
-    (define/public (custom-display p) 
-      (display (sexp-me) p))
+    (define/public (sexp-me) (cons (get-sexp-rator) rands))
+    (define/public (custom-print p depth) (display (sexp-me) p))
+    (define/public (custom-write p)       (write   (sexp-me) p))
+    (define/public (custom-display p)     (display (sexp-me) p))
 
-    (define/public (update-rands rands)
-      (new this% [rands rands] [scope scope]))
+    ;; -------------------------------------------------------------------------
+    ;; interface
 
     (define/public (run state)
       (send (update state) combine state))
@@ -285,9 +293,6 @@
 
     (define/public (add-scope ls)
       (new this% [rands rands] [scope (cons ls scope)]))
-
-    (define/public (augment state)
-      (run state))
 
     (define/public (merge obj state)
       (cond
@@ -299,7 +304,10 @@
        [(send state has-stored this)
         => (lambda (this^)
              (merge this^ (send state remove-stored this^)))]
-       [else (send state set-stored this)]))))
+       [else (send state set-stored this)]))
+
+    (define/public (augment state)
+      (run state))))
 
 ;; -----------------------------------------------------------------------------
 
@@ -348,19 +356,13 @@
       (cons (get-sexp-rator) 
             (append rands (if partial (list partial) (list)))))
 
-    (define/override (update-rands rands)
-      (new this% [rands rands] [partial partial]))
-
-    (define/public (update-partial partial)
-      (new this% [rands rands] [partial partial]))
-
     (define/override (update state)
       (define new-partial
         (or partial (send this body . rands)))
       (define result (send new-partial update state))
       (cond
        [(is-a? result disj%)
-        (update-partial result)]
+        (new this% [rands rands] [partial partial])]
        [else result]))))
 
 ;; =============================================================================
@@ -369,7 +371,6 @@
 (define ground%
   (class attribute% 
     (super-new)
-    (inherit-field rands)
     (define/overment (merge obj state)
       (cond
        [(is-a? this (send obj get-rator))
@@ -378,8 +379,7 @@
         (send obj merge this state)]
        [else (new fail%)]))))
 
-;; -----------------------------------------------------------------------------
-
+;; TODO: not a mixin anymore
 (define (ground-type-mixin pred?)
   (class ground%
     (super-new)
@@ -388,76 +388,21 @@
       (object-name pred?))
     (define/augride (update state)
       (let ([x (send state walk (car rands))])
-        (cond
-         [(var? x) (new this% [rands (list x)])]
-         [else (with-handlers 
-                 ([exn:fail? (lambda (e) (new fail% [trace e]))])
-                 (if (pred? x) succeed fail))])))))
-
-;; -----------------------------------------------------------------------------
-
-(define symbol% (ground-type-mixin symbol?))
-(define number% (ground-type-mixin number?))
-
-(define (symbol@ x) (new symbol% [rands (list x)]))
-(define (number@ x) (new number% [rands (list x)]))
-
-;; =============================================================================
-;; tree@
-;; x is a tree iff it implements gen:tree
-
-(define tree%
-  (class attribute%
-    (super-new)
-    (inherit-field rands)
-
-    (define/augride (update state)
-      (let* ([t (send state walk (car rands))])
-        (cond
-         [(list? t) succeed]
-         [(tree? t)
-          (match-define (tree nodes) t)
-          (send (apply conj (for/list ([node nodes]) (tree@ node)))
-                update state)]
-         [(var? t) this]
-         [else fail])))
-
-    (define/overment (merge obj state)
-      (cond
-       [(or (is-a? obj this%)
-            (is-a? this (send obj get-rator)))
-        (inner (super merge obj state) merge obj state)]
-       [else (new fail%)]))))
-
-(define (tree@ t)
-  (new tree% [rands (list t)]))
-
-;; -----------------------------------------------------------------------------
-;; list@
-
-;; todo: list has an interpretation, but you should still be able to
-;; quickly get/set it as an attribute?  and it shouldn't infinite loop
-;; the projection (bc reifiable)
-
-(define list%
-  (class tree%
-    (super-new)
-    (define/override (get-sexp-rator) 'list@)
-    (define/public (body ls)
-      (project ls [(list)] [(cons a d) (list@ d)]))))
-
-(define (list@ ls)
-  (new (partial-attribute-mixin list%) [rands (list ls)]))
+        (if (var? x)
+            (new this% [rands (list x)])
+            (with-handlers 
+              ([exn:fail? (lambda (e) (new fail% [trace e]))])
+              (if (pred? x) succeed fail)))))))
 
 ;; =============================================================================
 ;; existentials
 
-(define-syntax-rule (exists (x ...) bodys ... body)
+(define-syntax-rule (exists (x ...) effect ... stmt)
   (let ([x (var 'x)] ...)
-    (unless (void? bodys)
-      (error 'exists "not void\n expression: ~a" 'bodys))
+    (unless (void? effect)
+      (error 'exists "not void\n expression: ~a" 'effect))
     ... 
-    (send body add-scope (list x ...))))
+    (send stmt add-scope (list x ...))))
 
 (define-syntax-rule (fresh (x ...) body ...)
   (exists (x ...) body ...))
@@ -465,12 +410,12 @@
 ;; =============================================================================
 ;; universals
 
-(define-syntax-rule (forall (x ...) bodys ... body)
-  (let ([x (eigen 'x)] ...) 
-    (unless (void? bodys)
-      (error 'forall "intermediate expression was not void\n ~a" 'bodys))
+(define-syntax-rule (forall (x ...) effect ... stmt)
+  (let ([x (eigen 'x)] ...)
+    (unless (void? effect)
+      (error 'forall "intermediate expression was not void\n ~a" 'effect))
     ... 
-    (send body add-scope (list x ...))))
+    (send stmt add-scope (list x ...))))
 
 ;; =============================================================================
 ;; operators
@@ -478,28 +423,29 @@
 (define operator%
   (class* object% (printable<%>)
     (super-new)
-
     (define/public (sexp-me) #f)
+    (define/public (custom-print p depth) (write (sexp-me) p))
+    (define/public (custom-write p)       (write (sexp-me) p))
+    (define/public (custom-display p)     (write (sexp-me) p))
 
-    (define/public (custom-print p depth)
-      (write (sexp-me) p))
-    (define/public (custom-write p)
-      (write (sexp-me) p))
-    (define/public (custom-display p) 
-      (write (sexp-me) p))))
+    (define/public (combine state)
+      (cond
+       [(send state has-stored this) state]
+       [else (send state set-stored this)]))))
 
 ;; -----------------------------------------------------------------------------
 ;; associate
 
 (define (≡ x v) (== x v))
-
-(define (== x v)
-  (new ==% [x x] [v v]))
+(define (== x v) (new ==% [x x] [v v]))
 
 (define ==%
   (class* operator% (equal<%>)
     (init-field x v [scope '()])
     (super-new)
+
+    ;; -------------------------------------------------------------------------
+    ;; equality 
 
     (define/public (equal-to? obj recur?)
       (or (and (recur? x (get-field x obj))
@@ -511,16 +457,21 @@
     (define/public (equal-secondary-hash-code-of hash-code)
       (+ (* 10 (hash-code x)) (* 100 (hash-code v))))
 
+    ;; -------------------------------------------------------------------------
+    ;; printing
     (define/override (sexp-me)
       (list (object-name this%) x v))
+
+
+    ;; -------------------------------------------------------------------------
+    ;; interface
 
     (define/public (update state)
       (let ([x (send state walk x)]
             [v (send state walk v)])
-        (send (send (new state%) associate x v scope)
-              update state)))
+        (send (send (new state%) associate x v scope) update state)))
 
-    (define/public (combine state)
+    (define/override (combine state)
       (send state associate x v scope))
 
     (define/public (run state)
@@ -533,6 +484,7 @@
       (delay (send (update state) augment state)))))
 
 ;; -----------------------------------------------------------------------------
+;; anonymous relations
 
 (define anonymous-relation%
   (class* operator% (augmentable<%>)
@@ -545,25 +497,24 @@
       this)
     (define/public (add-scope ls)
       (new this% [sexp sexp] [init init] [scope (cons ls scope)]))
-    (define/public (combine state)
-      (send state set-stored this))
     (define/public (augment state)
       (delay (send (send (init) add-scope scope) augment state)))))
 
-(require (for-syntax racket/pretty))
 (define-syntax (relation@ stx)
   (syntax-parse stx
-    [(relation@
-       (~optional (~seq #:name name))
-       (args ...) body:expr)
+    [(relation@ (~optional (~seq #:name name)) (args ...) body:expr)
      (define/with-syntax rel-name
        (cond
         [(attribute name) #'(object-name name)]
         [else #`'#,(string->symbol (pretty-format (car (syntax->list stx))))]))
      (syntax/loc stx
        (lambda (args ...)
-         (let ([th (lambda () body)])
-           (new anonymous-relation% [sexp (list rel-name args ...)] [init th]))))]))
+         (new anonymous-relation%
+              [sexp (list rel-name args ...)]
+              [init (lambda () body)])))]))
+
+;; -----------------------------------------------------------------------------
+;; conjunction
 
 (define conj%
   (class operator%
@@ -592,7 +543,7 @@
         (delay (bindm a-inf augment-if-augmentable)))
       (map-if-augmentable (run state)))
     
-    (define/public (combine state)
+    (define/override (combine state)
       (for/fold ([state state]) ([thing clauses])
         (send thing combine state)))
 
@@ -601,7 +552,7 @@
 
     (define/public (add-scope ls)
       (define new-clauses
-        (map (lambda (thing) (send thing add-scope ls)) clauses))
+        (for/list ([thing clauses]) (send thing add-scope ls)))
       (new conj% [clauses new-clauses]))
 
     (define/public (augment state)
@@ -633,41 +584,39 @@
                     states (range 0 (length states)))))
 
     (define/public (update state)
-      (define ss (map (lambda (ss) (send ss update state)) states))
+      (define ss (for/list ([ss states]) (send ss update state)))
       (define result (filter (lambda (state) (not (is-a? state fail%))) ss))
       (cond
        [(null? result) (new fail% [trace `(disj% . ,ss)])]
        [(findf (lambda (ss) (and (is-a? ss state%)
                                  (send ss trivial?)))
-               result) 
+               result)
+        ;; could check that the rest of the states fail
         succeed]
        [(null? (cdr result)) (car result)]
        [else (new disj% [states result])]))
 
     (define/public (run state)
-      (delay (let loop ([states states])
-               (cond
-                [(null? (cdr states)) 
-                 (send (car states) run state)]
-                [else (mplusm (send (car states) run state)
-                              (delay (loop (cdr states))))]))))
-
-    (define/public (combine state)
-      (cond
-       [(send state has-stored this) state]
-       [else (send state set-stored this)]))
+      (define (loop states)
+        (cond
+         [(null? (cdr states)) 
+          (send (car states) run state)]
+         [else (mplusm (send (car states) run state)
+                       (delay (loop (cdr states))))]))
+      (delay (loop states)))
 
     (define/public (add-scope ls)
-      (new disj% [states (map (lambda (ss) (send ss add-scope ls)) states)]))
+      (new disj% [states (for/list ([ss states]) 
+                           (send ss add-scope ls))]))
 
     (define/public (augment state)
-      (delay 
-        (let loop ([states states])
-          (cond
-           [(null? (cdr states)) 
-            (send (car states) augment state)]
-           [else (mplusm (send (car states) augment state)
-                         (delay (loop (cdr states))))]))))))
+      (define (loop states)
+        (cond
+         [(null? (cdr states)) 
+          (send (car states) augment state)]
+         [else (mplusm (send (car states) augment state)
+                       (delay (loop (cdr states))))]))
+      (delay (loop states)))))
 
 (define (disj . clauses)
   (cond
@@ -712,14 +661,12 @@
               (new this% [stmt new-stmt])
               (apply disj newer-stmt))])]
        [(is-a? new-stmt disj%)
-        (apply conj (map (lambda (state) (new this% [stmt state]))
-                         (get-field states new-stmt)))]
+        (apply conj (for/list ([state (get-field states new-stmt)])
+                      (new this% [stmt state])))]
        [else (new this% [stmt new-stmt])]))
 
     (define/public (run state)
       (send (update state) combine state))
-    (define/public (combine state)
-      (send state set-stored this))
 
     (define/public (add-scope ls)
       (new this% [stmt (send stmt add-scope ls)]))))
@@ -727,8 +674,8 @@
 (define (! stmt)
   (new not% [stmt (send stmt update (new state%))]))
 
-
 ;; -----------------------------------------------------------------------------
+;; projection
 
 (define project%
   (class* operator% (augmentable<%>)
@@ -762,12 +709,8 @@
 
     (define/public (run state)
       (send (update state) combine state))
-    (define/public (combine state)
-      (send state set-stored this))
 
     (define/public (add-scope ls) this)))
-
-(require (for-syntax racket/function))
 
 (define-for-syntax (walk-pattern stx quoted?)
   (syntax-parse stx
@@ -792,8 +735,6 @@
              (walk-pattern #'d quoted?))]
     [x:id (if quoted? (list) (list #'x))]
     [x (list)]))
-
-(require (for-syntax racket/pretty))
 
 (define-for-syntax (commit-pattern stx thing quoted?)
   (syntax-parse stx
@@ -847,7 +788,6 @@
     [x
      #`(or (var? #,thing) (eq? #,thing 'x))]))
 
-(require (for-syntax racket/list))
 (define-syntax (project stx)
   (syntax-parse stx
     [(project project-term:id
@@ -879,6 +819,35 @@
              [phase2 phase2-body])
         ...)]))
 
+;; =============================================================================
+;; trees
+
+(define (tree@ t)
+  (new tree% [rands (list t)]))
+
+(define tree%
+  (class attribute%
+    (super-new)
+    (inherit-field rands)
+
+    (define/augride (update state)
+      (let* ([t (send state walk (car rands))])
+        (cond
+         [(list? t) succeed]
+         [(tree? t)
+          (match-define (tree nodes) t)
+          (send (apply conj (for/list ([node nodes]) (tree@ node)))
+                update state)]
+         [(var? t) this]
+         [else fail])))
+
+    (define/overment (merge obj state)
+      (cond
+       [(or (is-a? obj this%)
+            (is-a? this (send obj get-rator)))
+        (inner (super merge obj state) merge obj state)]
+       [else (new fail%)]))))
+
 (define (unify-tree@ t v)
   (new unify-tree% [rands (list t v)]))
 
@@ -887,21 +856,21 @@
     (super-new)
     (inherit-field rands)
     (define/augment (update state)
-      (let ([t (send state walk (car rands))]
-            [v (send state walk (cadr rands))])
-        (cond
-         [(equal? t v) succeed]
-         [(pair? v)
-          (send (conj (tree-first@ t (car v))
-                      (tree-rest@ t (cdr v)))
-                update state)]
-         [(null? v)
-          (match-define (tree nodes) t)
-          (send
-           (apply conj (for/list ([node nodes]) 
-                         (== node (list))))
-           update state)]
-         [else (new this% [rands (list t v)])])))))
+      (define t (send state walk (car rands)))
+      (define v (send state walk (cadr rands)))
+      (cond
+       [(equal? t v) succeed]
+       [(pair? v)
+        (send (conj (tree-first@ t (car v))
+                    (tree-rest@ t (cdr v)))
+              update state)]
+       [(null? v)
+        (match-define (tree nodes) t)
+        (send
+         (apply conj (for/list ([node nodes]) 
+                       (== node (list))))
+         update state)]
+       [else (new this% [rands (list t v)])]))))
 
 (define (tree-first@ t v)
   (new tree-first% [rands (list t v)]))
@@ -946,9 +915,10 @@
   (new tree-rest% [rands (list t v)]))
 
 (define tree-rest%
-  (class relation%
+  (class* relation% (augmentable<%>)
     (super-new)
     (inherit-field rands)
+    (inherit run)
     (define/augment (update state)
       (let ([t (send state walk (car rands))]
             [v (send state walk (cadr rands))])
@@ -972,4 +942,7 @@
    (tree rest)]
   [[(tree (cons (cons a d) rest))]
    (tree (cons d rest))])
+
+;; =============================================================================
+;; convenience
 

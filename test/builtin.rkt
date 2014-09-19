@@ -14,15 +14,14 @@
 ;; along with this program.  If not, see
 ;; <http://www.gnu.org/licenses/>.
 
-#lang racket/base
+#lang kraken
 
 (require (except-in rackunit fail) 
          rackunit/text-ui racket/list
          racket/class racket/pretty)
 
 (require "../main.rkt"
-         "../src/testing.rkt"
-         "../src/eigen.rkt")
+         "../src/testing.rkt")
 
 (define (bar)
   (printf "====================================================\n"))

@@ -23,6 +23,29 @@
 (provide (all-defined-out))
 
 ;; -----------------------------------------------------------------------------
+;; symbol@
+
+(define symbol% (ground-type-mixin symbol?))
+(define (symbol@ x) (new symbol% [rands (list x)]))
+
+;; -----------------------------------------------------------------------------
+;; list@
+
+;; todo: list has an interpretation, but you should still be able to
+;; quickly get/set it as an attribute?  and it shouldn't infinite loop
+;; the projection (bc reifiable)
+
+(define list%
+  (class tree%
+    (super-new)
+    (define/override (get-sexp-rator) 'list@)
+    (define/public (body ls)
+      (project ls [(list)] [(cons a d) (list@ d)]))))
+
+(define (list@ ls)
+  (new (partial-attribute-mixin list%) [rands (list ls)]))
+
+;; -----------------------------------------------------------------------------
 ;; list-of@
 
 (define list-of%
@@ -37,7 +60,7 @@
 (define (list-of@ fn ls)
   (new (partial-attribute-mixin list-of%) [rands (list ls fn)]))
 
-;; =============================================================================
+;; -----------------------------------------------------------------------------
 ;; length@
 
 (define length%

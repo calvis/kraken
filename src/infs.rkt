@@ -24,8 +24,8 @@
 
 #lang racket/base
 
-(require (for-syntax racket/base syntax/parse)
-         racket/promise
+(require (for-syntax racket/base syntax/parse))
+(require racket/promise
          racket/class)
 
 (provide (all-defined-out)

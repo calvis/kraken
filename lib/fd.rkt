@@ -21,6 +21,12 @@
 (require (lib "kraken/src/main.rkt"))
 (provide (all-defined-out))
 
+;; -----------------------------------------------------------------------------
+;; number@
+
+(define number% (ground-type-mixin number?))
+(define (number@ x) (new number% [rands (list x)]))
+
 ;; =============================================================================
 ;; dom@
 
@@ -77,8 +83,7 @@
        [else (send state set-stored this)]))
 
     (define/override (augment state)
-      (send (apply disj (for/list ([i (dom->list d)]) (≡ x i)))
-            run state))))
+      (send (apply disj (for/list ([i (dom->list d)]) (≡ x i))) run state))))
 
 (define (dom@ x d)
   (new dom% [rands (list x d)]))
@@ -90,7 +95,7 @@
   (new +% [rands n*]))
 
 (define +%
-  (class* relation% ()
+  (class relation%
     (super-new)
     (inherit-field [n* rands])
 

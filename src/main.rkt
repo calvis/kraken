@@ -16,7 +16,9 @@
 
 #lang racket/base
 
-(require (for-syntax racket/base syntax/parse))
+(require (for-syntax racket/base 
+                     syntax/parse))
+
 (require racket/class 
          (except-in racket/match ==)
          racket/list
@@ -27,11 +29,13 @@
 (require "data.rkt"
          "interfaces.rkt"
          "base.rkt"
-         "infs.rkt")
+         "infs.rkt"
+         "eigen.rkt")
 
 (provide (all-from-out "data.rkt")
          (all-from-out "interfaces.rkt")
          (all-from-out "base.rkt")
+         (all-from-out "eigen.rkt")
          (all-defined-out))
 
 (define (take-a-inf n f) 
@@ -67,5 +71,4 @@
   (syntax-parse stx
     [(define@ (name@ args ...) interp)
      #`(define name@ (relation@ #:name name@ (args ...) interp))]))
-
 

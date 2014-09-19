@@ -1,11 +1,11 @@
 #lang scribble/manual
 
-@(require (for-label racket/base racket/class (lib "kraken/main.rkt")))
+@(require (for-label racket/class (lib "kraken/main.rkt")))
 
 @(require kraken scribble/eval)
 
 @title{Functional-Logical Programming in Kraken}
-@author[@author+email["Claire Alvis" "calvis@ccs.neu.edu"]]
+@author[@author+email["Claire Alvis" "claire.alvis@gmail.com"]]
 
 @defmodule[kraken #:lang]
 
@@ -93,7 +93,8 @@ Unifies @racket[x] with @racket[v].
 
 @examples[
 #:eval kr-eval
-(query (x) (≡ x "(╯°□°）╯︵ ┻━┻"))
+(query x (≡ x "(╯°□°）╯︵ ┻━┻"))
+(run (exists (x y) (≡ x y)))
 ]}
 
 @defproc[(conj [clause statement?] ...) statement?]{
@@ -102,6 +103,7 @@ Performs logical conjunction over @racket[clause]s.
 
 @examples[
 #:eval kr-eval
+(exists (x y) (conj (≡ x y) (≡ y 5)))
 (query (x y) (conj (≡ x y) (≡ y 5)))
 ]}
 
@@ -112,6 +114,7 @@ Performs logical disjunction over @racket[clause]s.
 @examples[
 #:eval kr-eval
 (query (x y) (disj (≡ x y) (≡ y 5)))
+(query x (disj (≡ x 2) (≡ x 2)))
 ]}
 
 @defform[(project lv [pattern maybe-body] ...)
