@@ -262,7 +262,7 @@
    (run (== x (list))))
 
   (check-equal?
-   (query (x)
+   (query x
      (project x [(cons a d) (conj (≡ a 5) (== (cdr x) 6))]))
    '((5 . 6)))
 
@@ -270,11 +270,11 @@
    (project x [(cons a d) fail]))
 
   (check-equal?
-   (query (x) (project x [(list 1 2 3)]))
+   (query x (project x [(list 1 2 3)]))
    '((1 2 3)))
 
   (check-equal?
-   (query (x)
+   (query x
      (conj (project x [(tree (list y1 (list y) y2))])
            (== x (list 1 2 3))))
    '((1 2 3))))
@@ -292,7 +292,7 @@
   (check-quick-termination (run (foo@ x) 2))
 
   (check-equal?
-   (query 2 (x) (foo@ x))
+   (query 2 x (foo@ x))
    '(())))
 
 (define-dependency-test eigen-tests
@@ -505,7 +505,7 @@
    (== (list 5) (tree (list x))))
 
   (check-equal?
-   (query (x) (== (list 5) (tree (list x (list 5) x))))
+   (query x (== (list 5) (tree (list x (list 5) x))))
    '(()))
 
   (check-equal?
@@ -521,7 +521,7 @@
    (length@ (list 1 2 3) 3))
 
   (check-equal?
-   (query 2 (x) (length@ (list 1 2 3) x))
+   (query 2 x (length@ (list 1 2 3) x))
    '(3))
 
   (let ([answer (run (exists (n1 n2)
@@ -607,15 +607,15 @@
   (define (uw5 v) (≡ v 5))
 
   (check-equal?
-   (query 1 (x) (list-of@ uw5 (list x)))
+   (query 1 x (list-of@ uw5 (list x)))
    '(5))
 
   (check-equal?
-   (query 1 (x) (list-of@ (lambda (v) (≡ v 5)) (list x x x)))
+   (query 1 x (list-of@ (lambda (v) (≡ v 5)) (list x x x)))
    '(5))
 
   (check-equal?
-   (query 2 (x) (list-of@ (lambda (v) (≡ v 5)) (list x x x)))
+   (query 2 x (list-of@ (lambda (v) (≡ v 5)) (list x x x)))
    '(5))
 
   (check-equal?
@@ -627,7 +627,7 @@
    (run (list-of@ (lambda (v) succeed) x) 1))
 
   (check-equal? 
-   (query (x) (conj (length@ x 3) (list-of@ (lambda (v) (≡ v 5)) x)))
+   (query x (conj (length@ x 3) (list-of@ (lambda (v) (≡ v 5)) x)))
    '((5 5 5)))
 
   (define@ (foo@ x thing)
@@ -656,13 +656,13 @@
    '())
 
   (check-equal?
-   (query (z) 
+   (query z 
      (conj (== z (tree (list y (list 5) y)))
            (length@ z 1)))
    `(,(tree (list (list) (list 5) (list)))))
 
   (check-equal?
-   (query (z) 
+   (query z 
      (conj (foo@ z (list 5))
            (length@ z 1)))
    '((5))))
@@ -705,10 +705,10 @@
    (lookup@ `((x . bool)) `x `int))
 
   (check-quick-termination
-   (query (x) (lookup@ `((x1 . int) (x2 . int)) x `int)))
+   (query x (lookup@ `((x1 . int) (x2 . int)) x `int)))
 
   (check-equal?
-   (query (x) (lookup@ `((x1 . int) (x2 . int)) x `int))
+   (query x (lookup@ `((x1 . int) (x2 . int)) x `int))
    '(x1 x2))
 
   (define@ (⊢@ gamma expr type)
@@ -761,31 +761,31 @@
    (run (⊢@ `() x `int) 1))
 
   (check-long-termination
-   (query 2 (x) (⊢@ `() x `int)))
+   (query 2 x (⊢@ `() x `int)))
 
   (check-equal?
-   (query 2 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int)))
+   (query 2 x (⊢@ `() `(lambda (x) ,x) `(-> int int)))
    '((num lv.0) (var x)))
 
   (check-long-termination
-   (query 3 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int))))
+   (query 3 x (⊢@ `() `(lambda (x) ,x) `(-> int int))))
 
   (check-equal?
-   (query 3 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int)))
+   (query 3 x (⊢@ `() `(lambda (x) ,x) `(-> int int)))
    '((num lv.0) (var x) (app (lambda (lv.0) (num lv.1)) (num lv.2))))
 
   (check-long-termination
-   (query 5 (x) (⊢@ `() `(lambda (x) ,x) `(-> int int))))
+   (query 5 x (⊢@ `() `(lambda (x) ,x) `(-> int int))))
 
   (check-run-succeed
    (forall (e) (⊢@ `() `(num ,e) `int)))
 
   (check-equal?
-   (query (x) (⊢@ `((x . int)) `(lambda (,x) (var x)) `(-> int int)))
+   (query x (⊢@ `((x . int)) `(lambda (,x) (var x)) `(-> int int)))
    '(x lv.0))
   
   (check-equal?
-   (query (stuff) (⊢@ `((x . int)) `(lambda ,stuff (var x)) `(-> int int)))
+   (query stuff (⊢@ `((x . int)) `(lambda ,stuff (var x)) `(-> int int)))
    '((x) (lv.0))))
 
 (define-dependency-test dd-tests

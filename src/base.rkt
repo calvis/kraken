@@ -636,16 +636,13 @@
     (define/public (update state)
       (let ([x (send state walk x)]
             [v (send state walk v)])
-        (send ;; (send-generic (new state%) state-associate x v scope)
-         (send (new state%) associate x v scope)
-         update state)))
+        (send (send (new state%) associate x v scope)
+              update state)))
 
     (define/public (combine state)
-      ;; (send-generic state state-associate x v scope)
       (send state associate x v scope))
 
     (define/public (run state)
-      ;; (send-generic state state-associate x v scope)
       (send state associate x v scope))
 
     (define/public (add-scope ls)
@@ -696,15 +693,17 @@
       (cons (object-name this%) clauses))
 
     (define/public (run state)
-      (delay (for/fold ([a-inf state]) ([g clauses])
-               (bindm a-inf (lambda (state) (send g run state))))))
+      (define ((run-state g) state) (send g run state))
+      (delay (for/fold ([a-inf state]) ([g clauses]) 
+               (bindm a-inf (run-state g)))))
 
     (define/public (all state)
+      (define has-augmentable?
+        (curryr is-a? augmentable<%>))
       (define (map-if-augmentable a-inf)
         (define (augment-if-augmentable state)
           (cond
-           [(findf (curryr is-a? augmentable<%>)
-                   (get-field store state))
+           [(findf has-augmentable? (get-field store state))
             (map-if-augmentable (send state augment))]
            [else state]))
         (delay (bindm a-inf augment-if-augmentable)))
@@ -727,7 +726,10 @@
                (bindm a-inf (lambda (state) (send g augment state))))))))
 
 (define (conj . clauses)
-  (new conj% [clauses clauses]))
+  (cond
+   [(null? clauses) (new fail%)]
+   [(null? (cdr clauses)) (car clauses)]
+   [else (new conj% [clauses clauses])]))
 
 ;; -----------------------------------------------------------------------------
 ;; disjunction
@@ -788,7 +790,10 @@
                          (delay (loop (cdr states))))]))))))
 
 (define (disj . clauses)
-  (new disj% [states clauses]))
+  (cond
+   [(null? clauses) (new fail%)]
+   [(null? (cdr clauses)) (car clauses)]
+   [else (new disj% [states clauses])]))
 
 ;; -----------------------------------------------------------------------------
 ;; not
@@ -869,11 +874,9 @@
         (cond
          [(phase1 t)
           => (lambda (this^)
-               (cond
-                [(boolean? this^) 
-                 (send (phase2 t) augment state)]
-                [else 
-                 (send this^ augment state)]))]
+               (if (boolean? this^)
+                   (send (phase2 t) augment state)
+                   (send this^ augment state)))]
          [else 
           (send (phase2 t) augment state)])))
 
@@ -892,6 +895,8 @@
      #:fail-unless quoted? "unquote not inside quasiquote"
      (list #'x)]
     [((~literal quasiquote) expr)
+     (walk-pattern #'expr #t)]
+    [((~literal quote) expr)
      (walk-pattern #'expr #t)]
     [((~literal cons) a d)
      (append (walk-pattern #'a quoted?)
@@ -916,6 +921,9 @@
      #:fail-unless quoted? "unquote not inside quasiquote"
      #'#t]
     [((~literal quasiquote) expr)
+     #:when (not quoted?)
+     (commit-pattern #'expr thing #t)]
+    [((~literal quote) expr)
      #:when (not quoted?)
      (commit-pattern #'expr thing #t)]
     [((~literal cons) a d)
@@ -956,9 +964,9 @@
      (cond
       [quoted? #`(or (var? #,thing) (eq? #,thing 'x))]
       [else #`t])]
-    [() 
+    [x
      #:fail-unless quoted? "app"
-     #`(or (var? #,thing) (null? #,thing))]))
+     #`(or (var? #,thing) (eq? #,thing 'x))]))
 
 (require (for-syntax racket/list))
 (define-syntax (project stx)

@@ -18,7 +18,7 @@ miniKanren, Kraken does not make any attempt to be backwards
 compatible.
 
 @(define kr-eval (make-base-eval))
-@(interaction-eval #:eval kr-eval (require kraken))
+@(interaction-eval #:eval kr-eval (require (for-syntax racket/base) kraken))
 
 @section{States}
 
@@ -56,7 +56,8 @@ Evaluates the logical meaning of @racket[stmt], and returns the first
 @racket[num] different possible satisfying @racket[state%]s (or all
 of them if no number is given).}
 
-@defform[(query maybe-num (x ...) stmt)
+@defform[(query maybe-num query-expr stmt)
+         #:grammar ([query-expr x:id (x:id ...)])
          #:contracts ([stmt statement?])]{
 
 Combines @racket[exists] and @racket[run] to automatically reify each
@@ -115,7 +116,8 @@ Performs logical disjunction over @racket[clause]s.
 
 @defform[(project lv [pattern maybe-body] ...)
          #:grammar ([maybe-body (code:line) body]
-                    [pattern (quasiquote quasi-pattern)
+                    [pattern (quote pattern)
+                             (quasiquote quasi-pattern)
                              (cons pattern pattern)
                              (tree (list pattern ...))
                              (list pattern ...)
@@ -135,6 +137,9 @@ lexically bound within the @racket[body].
 
 @examples[
 #:eval kr-eval
+(exists (x y) 
+  (project x 
+    ['(1 2 3) (≡ y 5)]))
 (query (x y) 
   (conj (project x [(list) (≡ y 5)]) 
         (≡ x (list))))

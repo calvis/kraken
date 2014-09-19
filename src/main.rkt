@@ -57,11 +57,11 @@
 
 (define-syntax (query stx)
   (syntax-parse stx
-    [(query (~optional n #:defaults ([n #'#f])) (x:id) body:expr)
+    [(query (~optional n #:defaults ([n #'#f])) x:id body:expr)
      #'(let ([x (var 'x)])
          (run (conj body) n x))]
     [(query (~optional n #:defaults ([n #'#f])) (x:id ...) body:expr)
-     #'(query (q) (exists (x ...) (conj (== q (list x ...)) body)))]))
+     #'(query n q (exists (x ...) (conj (== q (list x ...)) body)))]))
 
 (define-syntax (define@ stx)
   (syntax-parse stx
