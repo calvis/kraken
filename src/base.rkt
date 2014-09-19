@@ -184,11 +184,7 @@
           ([p subst])
           (send state associate 
                 (send state^ walk (car p))
-                (send state^ walk (cdr p)))
-          #;
-          (send-generic state state-associate 
-                        (send state^ walk (car p))
-                        (send state^ walk (cdr p)))))
+                (send state^ walk (cdr p)))))
       (define updated-store
         (for/fold
           ([state updated-subst])
@@ -291,7 +287,7 @@
 ;; Base is a (new base% [rands [List-of Value]])
 
 (define base%
-  (class* object% (printable<%> 
+  (class* object% (printable<%>
                    runnable<%>
                    updateable<%>
                    combineable<%>)
@@ -704,14 +700,15 @@
                (bindm a-inf (lambda (state) (send g run state))))))
 
     (define/public (all state)
-      (delay (let loop ([a-inf (run state)])
-               (bindm a-inf
-                      (lambda (state)
-                        (cond
-                         [(findf (curryr is-a? augmentable<%>)
-                                 (get-field store state))
-                          (delay (loop (send state augment)))]
-                         [else state]))))))
+      (define (map-if-augmentable a-inf)
+        (define (augment-if-augmentable state)
+          (cond
+           [(findf (curryr is-a? augmentable<%>)
+                   (get-field store state))
+            (map-if-augmentable (send state augment))]
+           [else state]))
+        (delay (bindm a-inf augment-if-augmentable)))
+      (map-if-augmentable (run state)))
     
     (define/public (combine state)
       (for/fold ([state state]) ([thing clauses])
@@ -727,8 +724,7 @@
 
     (define/public (augment state)
       (delay (for/fold ([a-inf state]) ([g clauses])
-               (bindm a-inf (lambda (state) 
-                              (send g augment state))))))))
+               (bindm a-inf (lambda (state) (send g augment state))))))))
 
 (define (conj . clauses)
   (new conj% [clauses clauses]))
@@ -978,6 +974,7 @@
      (define/with-syntax (hope? ...)
        (map (curryr commit-pattern #'t #f)
             (syntax->list #'(pat ...))))
+     ;; support all of match and punt if it doesn't work
      (define/with-syntax (phase1-body ...)
        #'((lambda (t) (match t [pat body] [_ hope?]))
           ...))

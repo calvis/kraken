@@ -976,14 +976,9 @@
    (time (dd-tests))))
 
 (module+ test
-  (require profile)
   (parameterize ([pretty-print-columns 102]
                  [print-reader-abbreviations #t])
-    (time (void (run-tests builtin-test-suite)))
-    #;
-    (profile (time (void (run-tests builtin-test-suite)))
-             #:repeat 100
-             #:use-errortrace? #t)))
+    (time (void (run-tests builtin-test-suite)))))
 
 (module+ main
   (require (submod ".." test)))

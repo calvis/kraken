@@ -144,7 +144,9 @@ lexically bound within the @racket[body].
 (query (x y) 
   (project x [(cons a d) (≡ y 5)]))
 (query (x)
-  (project x [(cons a d) (conj (≡ a 5) (== (cdr x) 6))]))
+  (project x 
+    [(cons a d) (conj (≡ a 5) (== (cdr x) 6))] 
+    [(list x y z) (≡ y 7)]))
 ]
 
 If a @racket[body] is not provided, @racket[succeed] is simply
