@@ -139,7 +139,11 @@
 
   (check-equal? 
    (run (≡ x '()))
-   (list (new state% [subst `((,x . ()))]))))
+   (list (new state% [subst `((,x . ()))])))
+
+  (check-equal?
+   (run (≡ x y))
+   (run (≡ y x))))
 
 
 (define-dependency-test conj-tests 
@@ -232,17 +236,21 @@
               (disj (≡ x 5) (≡ x 6))))
    (run (disj (≡ x 5) (≡ x 6)))))
 
-;; (define-dependency-test not-tests
-;;   (associate-tests conj-tests disj-tests)
-;;   
-;;   (check-equal?
-;;    (! (new state%)) 
-;;    (! (new state%)))
-;; 
-;;   (check-equal?
-;;    (send (! (conj (≡ x 5) (≡ y 6))) update (new state%))
-;;    (send (disj (! (≡ y 6)) (! (≡ x 5))) update (new state%))))
-;; 
+(define-dependency-test not-tests
+  (associate-tests conj-tests)
+  
+  (check-equal?
+   (! (new state%)) 
+   (! (new state%)))
+
+  (check-equal?
+   (run (conj (! (conj (≡ x 5) (≡ y 6)))
+              (≡ x 5) (≡ y 6)))
+   (run fail))
+
+  (let ([state (send (! (≡ x y)) combine (new state%))])
+    (check-equal? (send (! (≡ x y)) combine state) state)
+    (check-equal? (send (! (≡ y x)) combine state) state)))
 
 (define-dependency-test project-tests
   (associate-tests conj-tests disj-tests)
@@ -280,7 +288,7 @@
    '((1 2 3))))
 
 (define-dependency-test operator-tests
-  (associate-tests conj-tests disj-tests project-tests)
+  (associate-tests conj-tests disj-tests project-tests not-tests)
 
   (define foo@
     (relation@ (x)
@@ -679,6 +687,121 @@
   (check-run-fail
    (conj (symbol@ x) (number@ x))))
 
+(define-dependency-test neq-tests
+  (operator-tests)
+
+  (check-run-succeed (!= 5 6))
+  (check-run-fail (!= 3 3))
+
+  (check-run-fail
+   (conj (== x 3) (!= 3 x)))
+
+  (check-run-fail
+   (conj (!= 3 x) (== x 3)))
+
+  (check-run-fail
+   (conj (!= x y) (== x y)))
+
+  (check-run-fail (!= x x))
+
+  (check-run-fail
+   (conj (== 3 x) (== 3 y) (=/= y x)))
+
+  (check-equal?
+   (run (exists (x y z)
+          (conj (=/= x y)
+                (== x `(0 ,z 1))
+                (== y `(0 1 1))
+                (== z 0))))
+   (run (conj (== z 0)
+              (== x '(0 0 1))
+              (== y '(0 1 1)))))
+
+  (check-equal?
+   (run (exists (x) (!= x 5)))
+   (list (new state% [subst (list)] [store (list (!= x 5))])))
+
+  (check-equal?
+   (run (exists (x) (conj (!= x 5) (!= 5 x))))
+   (run (exists (x) (!= x 5))))
+
+  (check-equal?
+   (run (exists (x y) (conj (!= x y) (!= y x))))
+   (run (exists (x y) (!= x y))))
+
+  (check-equal?
+   (run (exists (x y) (conj (!= (cons x 1) (cons 2 y)) (== x 2))))
+   (run (exists (x y) (conj (!= 1 y) (== x 2)))))
+
+  (check-equal?
+   (run (exists (w x y z)
+          (!= (cons w x) (cons y z))))
+   (run (exists (w x y z)
+          (disj (!= x z) (!= w y)))))
+
+  (check-equal?
+   (run (exists (w x y z)
+          (conj (!= (cons w x) (cons y z)) (== w y))))
+   (run (exists (w x y z)
+          (conj (== w y) (!= x z)))))
+
+  (define@ (distinct@ l)
+    (project l
+      [(list)]
+      [(list a)]
+      [(cons a (cons ad dd))
+       (conj (!= a ad)
+             (distinct@ (cons a dd))
+             (distinct@ (cons ad dd)))]))
+
+  (check-run-succeed
+   (distinct@ (list)))
+
+  (check-run-succeed
+   (distinct@ (list 1)))
+
+  (check-run-succeed
+   (distinct@ (list 1 2)))
+
+  (check-equal?
+   (run (exists (x y) (distinct@ (list x y))))
+   (run (exists (x y) (!= x y))))
+
+  (check-equal?
+   (run (exists (x y z) (distinct@ (list x y z))))
+   (run (exists (x y z) (conj (!= x y) (!= x z) (!= y z)))))
+
+  (define@ (rember@ x ls o)
+    (project ls
+      [(list) 
+       (== (list) o)]
+      [(cons a d)
+       (disj 
+        (conj (== x a) (rember@ x d o))
+        (exists (r) (conj (!= a x) (== (cons a r) o) (rember@ x d r))))]))
+
+  (check-run-succeed
+   (rember@ 'x (list) (list)))
+
+  (check-run-succeed
+   (rember@ 'x (list 'x) (list)))
+
+  (check-equal?
+   (query x (rember@ 'x (list 'a) (list 'a)))
+   '(lv.0))
+
+  (check-equal?
+   (query x (rember@ 'x (list 'a) x))
+   '((a)))
+
+  (check-equal?
+   (query x (rember@ x (list 'a) (list)))
+   '(a))
+
+  (check-equal?
+   (query x (rember@ 'a '(a b a c) x))
+   '((b c))))
+
 (define-dependency-test stlc-tests
   (operator-tests list-of-tests eigen-tests)
 
@@ -960,9 +1083,11 @@
    (time (associate-tests))
    (time (conj-tests))
    (time (disj-tests))
+   (time (not-tests))
    (time (project-tests))
    (time (operator-tests))
 
+   (time (neq-tests))
    (time (eigen-tests))
    (time (list-tests))
    (time (ground-attribute-tests))

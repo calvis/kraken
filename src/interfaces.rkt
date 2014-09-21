@@ -19,8 +19,8 @@
 (require racket/class)
 (provide (all-defined-out))
 
-(define runnable<%> (interface () run))
-(define updateable<%> (interface () update))
+(define runnable<%>    (interface () run))
+(define updateable<%>  (interface () update))
 (define combineable<%> (interface () combine))
 (define augmentable<%> (interface () augment))
-
+(define negatable<%>  (interface () negate))

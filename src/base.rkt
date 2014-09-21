@@ -45,7 +45,8 @@
                    printable<%>
                    runnable<%>
                    updateable<%>
-                   augmentable<%>)
+                   augmentable<%>
+                   negatable<%>)
     (super-new)
 
     ;; subst is a Substitution
@@ -130,10 +131,19 @@
       (cond
        [(eq? x v) this]
        [(var? x)
-        (add-store 
-         (new this%
-              [subst (cons (cons x v) subst)]
-              [eigen (or eigen (any/eigen? v))]))]
+        (cond
+         [(var? v)
+          (let ([x (if (< (eq-hash-code x) (eq-hash-code v)) x v)]
+                [v (if (< (eq-hash-code x) (eq-hash-code v)) v x)])
+            (add-store 
+             (new this%
+                  [subst (cons (cons x v) subst)]
+                  [eigen (or eigen (any/eigen? v))])))]
+         [else
+          (add-store 
+           (new this%
+                [subst (cons (cons x v) subst)]
+                [eigen (or eigen (any/eigen? v))]))])]
        [(var? v)
         (add-store
          (new this% 
@@ -227,7 +237,14 @@
         (send thing augment state))
       (delay
         (for/fold ([a-inf a-inf]) ([thing store])
-          (bindm a-inf (send-augment thing)))))))
+          (bindm a-inf (send-augment thing)))))
+
+    (define/public (negate state)
+      (if (< (+ (length subst) (length store)) 2)
+          (new not% [stmt this])
+          (send (disj (apply disj (for/list ([p subst]) (! (== (car p) (cdr p)))))
+                      (apply disj (for/list ([c store]) (! c))))
+                combine state)))))
 
 ;; a Succeed is a (new state%)
 (define succeed (new state%))
@@ -428,10 +445,15 @@
     (define/public (custom-write p)       (write (sexp-me) p))
     (define/public (custom-display p)     (write (sexp-me) p))
 
+    (define/public (fail?) #f)
+
     (define/public (combine state)
       (cond
        [(send state has-stored this) state]
-       [else (send state set-stored this)]))))
+       [else (send state set-stored this)]))
+
+    (define/public (negate state)
+      (error '! "negation unsound\n statement: ~a" this))))
 
 ;; -----------------------------------------------------------------------------
 ;; associate
@@ -616,7 +638,10 @@
           (send (car states) augment state)]
          [else (mplusm (send (car states) augment state)
                        (delay (loop (cdr states))))]))
-      (delay (loop states)))))
+      (delay (loop states)))
+
+    (define/override (negate state)
+      (error '! "negation unsound\n statement: ~a" this))))
 
 (define (disj . clauses)
   (cond
@@ -651,7 +676,7 @@
           (new fail%)]
          [(send new-stmt fail?)
           succeed]
-         [else 
+         [else
           (define newer-stmt
             (append (for/list ([p (get-field subst new-stmt)])
                       (! (new state% [subst `(,p)])))
@@ -668,11 +693,20 @@
     (define/public (run state)
       (send (update state) combine state))
 
+    (define/public (augment state)
+      (send this combine state))
+
     (define/public (add-scope ls)
       (new this% [stmt (send stmt add-scope ls)]))))
 
 (define (! stmt)
   (new not% [stmt (send stmt update (new state%))]))
+
+;; -----------------------------------------------------------------------------
+;; disequality
+
+(define (!= x v)  (! (== x v)))
+(define (=/= x v) (!= x v))
 
 ;; -----------------------------------------------------------------------------
 ;; projection
@@ -942,7 +976,4 @@
    (tree rest)]
   [[(tree (cons (cons a d) rest))]
    (tree (cons d rest))])
-
-;; =============================================================================
-;; convenience
 
