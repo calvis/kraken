@@ -1,4 +1,4 @@
-cKanren
+kraken
 =======
 
 This library implements `#lang kraken`, a functional-logic programming
